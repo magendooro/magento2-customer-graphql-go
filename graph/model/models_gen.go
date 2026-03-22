@@ -35,6 +35,7 @@ type Customer struct {
 	ConfirmationStatus ConfirmationStatusEnum `json:"confirmation_status"`
 	GroupID            *int                   `json:"group_id,omitempty"`
 	Group              *CustomerGroup         `json:"group,omitempty"`
+	Orders             *CustomerOrders        `json:"orders,omitempty"`
 }
 
 type CustomerAddress struct {
@@ -176,6 +177,333 @@ type SearchResultPageInfo struct {
 	PageSize    *int `json:"page_size,omitempty"`
 	TotalPages  *int `json:"total_pages,omitempty"`
 }
+
+type FilterStringTypeInput struct {
+	Eq    *string   `json:"eq,omitempty"`
+	Match *string   `json:"match,omitempty"`
+	In    []*string `json:"in,omitempty"`
+}
+
+type FilterRangeTypeInput struct {
+	From *string `json:"from,omitempty"`
+	To   *string `json:"to,omitempty"`
+}
+
+type FilterEqualTypeInput struct {
+	Eq *string   `json:"eq,omitempty"`
+	In []*string `json:"in,omitempty"`
+}
+
+type CustomerOrdersFilterInput struct {
+	Number     *FilterStringTypeInput `json:"number,omitempty"`
+	OrderDate  *FilterRangeTypeInput  `json:"order_date,omitempty"`
+	Status     *FilterEqualTypeInput  `json:"status,omitempty"`
+	GrandTotal *FilterRangeTypeInput  `json:"grand_total,omitempty"`
+}
+
+type CustomerOrderSortInput struct {
+	OrderDate  *SortEnum `json:"order_date,omitempty"`
+	Number     *SortEnum `json:"number,omitempty"`
+	GrandTotal *SortEnum `json:"grand_total,omitempty"`
+}
+
+type Money struct {
+	Value    *float64      `json:"value,omitempty"`
+	Currency *CurrencyEnum `json:"currency,omitempty"`
+}
+
+type CustomerOrders struct {
+	// List of customer orders.
+	Items []*CustomerOrder `json:"items"`
+	// Pagination metadata.
+	PageInfo *SearchResultPageInfo `json:"page_info,omitempty"`
+	// Total number of orders matching the filter.
+	TotalCount *int `json:"total_count,omitempty"`
+}
+
+type CustomerOrder struct {
+	ID             string                `json:"id"`
+	OrderNumber    string                `json:"order_number"`
+	Number         string                `json:"number"`
+	OrderDate      string                `json:"order_date"`
+	Status         string                `json:"status"`
+	Carrier        *string               `json:"carrier,omitempty"`
+	ShippingMethod *string               `json:"shipping_method,omitempty"`
+	ShippingAddress *OrderAddress        `json:"shipping_address,omitempty"`
+	BillingAddress  *OrderAddress        `json:"billing_address,omitempty"`
+	PaymentMethods []*OrderPaymentMethod `json:"payment_methods"`
+	Items          []OrderItemInterface  `json:"items"`
+	Total          *OrderTotal           `json:"total,omitempty"`
+	Invoices       []*Invoice            `json:"invoices"`
+	Shipments      []*OrderShipment      `json:"shipments,omitempty"`
+	CreditMemos    []*CreditMemo         `json:"credit_memos,omitempty"`
+	Comments       []*SalesCommentItem   `json:"comments,omitempty"`
+}
+
+type OrderTotal struct {
+	GrandTotal      *Money            `json:"grand_total"`
+	Subtotal        *Money            `json:"subtotal"`
+	TotalTax        *Money            `json:"total_tax"`
+	TotalShipping   *Money            `json:"total_shipping"`
+	Taxes           []*TaxItem        `json:"taxes,omitempty"`
+	Discounts       []*Discount       `json:"discounts,omitempty"`
+	ShippingHandling *ShippingHandling `json:"shipping_handling,omitempty"`
+}
+
+type TaxItem struct {
+	Amount *Money   `json:"amount"`
+	Title  string   `json:"title"`
+	Rate   float64  `json:"rate"`
+}
+
+type Discount struct {
+	Amount *Money `json:"amount"`
+	Label  string `json:"label"`
+}
+
+type ShippingHandling struct {
+	AmountIncludingTax *Money             `json:"amount_including_tax,omitempty"`
+	AmountExcludingTax *Money             `json:"amount_excluding_tax,omitempty"`
+	TotalAmount        *Money             `json:"total_amount"`
+	Taxes              []*TaxItem         `json:"taxes,omitempty"`
+	Discounts          []*ShippingDiscount `json:"discounts,omitempty"`
+}
+
+type ShippingDiscount struct {
+	Amount *Money `json:"amount"`
+}
+
+type KeyValue struct {
+	Name  *string `json:"name,omitempty"`
+	Value *string `json:"value,omitempty"`
+}
+
+type OrderAddress struct {
+	Firstname  string   `json:"firstname"`
+	Lastname   string   `json:"lastname"`
+	Middlename *string  `json:"middlename,omitempty"`
+	Prefix     *string  `json:"prefix,omitempty"`
+	Suffix     *string  `json:"suffix,omitempty"`
+	Company    *string  `json:"company,omitempty"`
+	Street     []*string `json:"street"`
+	City       string   `json:"city"`
+	Region     *string  `json:"region,omitempty"`
+	RegionID   *int     `json:"region_id,omitempty"`
+	Postcode   *string  `json:"postcode,omitempty"`
+	CountryCode *CountryCodeEnum `json:"country_code,omitempty"`
+	Telephone  *string  `json:"telephone,omitempty"`
+	Fax        *string  `json:"fax,omitempty"`
+	VatID      *string  `json:"vat_id,omitempty"`
+}
+
+type OrderPaymentMethod struct {
+	Name           string      `json:"name"`
+	Type           string      `json:"type"`
+	AdditionalData []*KeyValue `json:"additional_data,omitempty"`
+}
+
+// OrderItemInterface is a GraphQL interface implemented by OrderItem
+type OrderItemInterface interface {
+	IsOrderItemInterface()
+	GetID() string
+	GetProductName() *string
+	GetProductSku() string
+	GetProductURLKey() *string
+	GetProductType() *string
+	GetProductSalePrice() *Money
+	GetQuantityOrdered() *float64
+	GetQuantityShipped() *float64
+	GetQuantityInvoiced() *float64
+	GetQuantityRefunded() *float64
+	GetQuantityCanceled() *float64
+	GetStatus() *string
+	GetDiscounts() []*Discount
+	GetEnteredOptions() []*OrderItemOption
+	GetSelectedOptions() []*OrderItemOption
+}
+
+type OrderItem struct {
+	ID               string            `json:"id"`
+	ProductName      *string           `json:"product_name,omitempty"`
+	ProductSku       string            `json:"product_sku"`
+	ProductURLKey    *string           `json:"product_url_key,omitempty"`
+	ProductType      *string           `json:"product_type,omitempty"`
+	ProductSalePrice *Money            `json:"product_sale_price"`
+	QuantityOrdered  *float64          `json:"quantity_ordered,omitempty"`
+	QuantityShipped  *float64          `json:"quantity_shipped,omitempty"`
+	QuantityInvoiced *float64          `json:"quantity_invoiced,omitempty"`
+	QuantityRefunded *float64          `json:"quantity_refunded,omitempty"`
+	QuantityCanceled *float64          `json:"quantity_canceled,omitempty"`
+	Status           *string           `json:"status,omitempty"`
+	Discounts        []*Discount       `json:"discounts,omitempty"`
+	EnteredOptions   []*OrderItemOption `json:"entered_options,omitempty"`
+	SelectedOptions  []*OrderItemOption `json:"selected_options,omitempty"`
+}
+
+func (OrderItem) IsOrderItemInterface() {}
+func (v OrderItem) GetID() string { return v.ID }
+func (v OrderItem) GetProductName() *string { return v.ProductName }
+func (v OrderItem) GetProductSku() string { return v.ProductSku }
+func (v OrderItem) GetProductURLKey() *string { return v.ProductURLKey }
+func (v OrderItem) GetProductType() *string { return v.ProductType }
+func (v OrderItem) GetProductSalePrice() *Money { return v.ProductSalePrice }
+func (v OrderItem) GetQuantityOrdered() *float64 { return v.QuantityOrdered }
+func (v OrderItem) GetQuantityShipped() *float64 { return v.QuantityShipped }
+func (v OrderItem) GetQuantityInvoiced() *float64 { return v.QuantityInvoiced }
+func (v OrderItem) GetQuantityRefunded() *float64 { return v.QuantityRefunded }
+func (v OrderItem) GetQuantityCanceled() *float64 { return v.QuantityCanceled }
+func (v OrderItem) GetStatus() *string { return v.Status }
+func (v OrderItem) GetDiscounts() []*Discount { return v.Discounts }
+func (v OrderItem) GetEnteredOptions() []*OrderItemOption { return v.EnteredOptions }
+func (v OrderItem) GetSelectedOptions() []*OrderItemOption { return v.SelectedOptions }
+
+type OrderItemOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+type SalesCommentItem struct {
+	Message   string `json:"message"`
+	Timestamp string `json:"timestamp"`
+}
+
+// Invoice types
+type Invoice struct {
+	ID       string                 `json:"id"`
+	Number   string                 `json:"number"`
+	Total    *InvoiceTotal          `json:"total,omitempty"`
+	Items    []InvoiceItemInterface  `json:"items,omitempty"`
+	Comments []*SalesCommentItem    `json:"comments,omitempty"`
+}
+
+type InvoiceTotal struct {
+	GrandTotal      *Money            `json:"grand_total"`
+	Subtotal        *Money            `json:"subtotal"`
+	TotalTax        *Money            `json:"total_tax"`
+	TotalShipping   *Money            `json:"total_shipping"`
+	Taxes           []*TaxItem        `json:"taxes,omitempty"`
+	Discounts       []*Discount       `json:"discounts,omitempty"`
+	ShippingHandling *ShippingHandling `json:"shipping_handling,omitempty"`
+}
+
+type InvoiceItemInterface interface {
+	IsInvoiceItemInterface()
+	GetID() string
+	GetProductName() *string
+	GetProductSku() string
+	GetProductSalePrice() *Money
+	GetQuantityInvoiced() float64
+	GetDiscounts() []*Discount
+	GetOrderItem() OrderItemInterface
+}
+
+type InvoiceItem struct {
+	ID               string           `json:"id"`
+	ProductName      *string          `json:"product_name,omitempty"`
+	ProductSku       string           `json:"product_sku"`
+	ProductSalePrice *Money           `json:"product_sale_price"`
+	QuantityInvoiced float64          `json:"quantity_invoiced"`
+	Discounts        []*Discount      `json:"discounts,omitempty"`
+	OrderItem        OrderItemInterface `json:"order_item,omitempty"`
+}
+
+func (InvoiceItem) IsInvoiceItemInterface() {}
+func (v InvoiceItem) GetID() string { return v.ID }
+func (v InvoiceItem) GetProductName() *string { return v.ProductName }
+func (v InvoiceItem) GetProductSku() string { return v.ProductSku }
+func (v InvoiceItem) GetProductSalePrice() *Money { return v.ProductSalePrice }
+func (v InvoiceItem) GetQuantityInvoiced() float64 { return v.QuantityInvoiced }
+func (v InvoiceItem) GetDiscounts() []*Discount { return v.Discounts }
+func (v InvoiceItem) GetOrderItem() OrderItemInterface { return v.OrderItem }
+
+// Shipment types
+type OrderShipment struct {
+	ID       string                  `json:"id"`
+	Number   string                  `json:"number"`
+	Tracking []*ShipmentTracking     `json:"tracking,omitempty"`
+	Items    []ShipmentItemInterface  `json:"items,omitempty"`
+	Comments []*SalesCommentItem     `json:"comments,omitempty"`
+}
+
+type ShipmentTracking struct {
+	Title   string  `json:"title"`
+	Carrier string  `json:"carrier"`
+	Number  *string `json:"number,omitempty"`
+}
+
+type ShipmentItemInterface interface {
+	IsShipmentItemInterface()
+	GetID() string
+	GetProductName() *string
+	GetProductSku() string
+	GetQuantityShipped() float64
+	GetOrderItem() OrderItemInterface
+}
+
+type ShipmentItem struct {
+	ID              string           `json:"id"`
+	ProductName     *string          `json:"product_name,omitempty"`
+	ProductSku      string           `json:"product_sku"`
+	QuantityShipped float64          `json:"quantity_shipped"`
+	OrderItem       OrderItemInterface `json:"order_item,omitempty"`
+}
+
+func (ShipmentItem) IsShipmentItemInterface() {}
+func (v ShipmentItem) GetID() string { return v.ID }
+func (v ShipmentItem) GetProductName() *string { return v.ProductName }
+func (v ShipmentItem) GetProductSku() string { return v.ProductSku }
+func (v ShipmentItem) GetQuantityShipped() float64 { return v.QuantityShipped }
+func (v ShipmentItem) GetOrderItem() OrderItemInterface { return v.OrderItem }
+
+// Credit memo types
+type CreditMemo struct {
+	ID       string                   `json:"id"`
+	Number   string                   `json:"number"`
+	Total    *CreditMemoTotal         `json:"total,omitempty"`
+	Items    []CreditMemoItemInterface `json:"items,omitempty"`
+	Comments []*SalesCommentItem      `json:"comments,omitempty"`
+}
+
+type CreditMemoTotal struct {
+	GrandTotal      *Money            `json:"grand_total"`
+	Subtotal        *Money            `json:"subtotal"`
+	TotalTax        *Money            `json:"total_tax"`
+	TotalShipping   *Money            `json:"total_shipping"`
+	Taxes           []*TaxItem        `json:"taxes,omitempty"`
+	Discounts       []*Discount       `json:"discounts,omitempty"`
+	ShippingHandling *ShippingHandling `json:"shipping_handling,omitempty"`
+}
+
+type CreditMemoItemInterface interface {
+	IsCreditMemoItemInterface()
+	GetID() string
+	GetProductName() *string
+	GetProductSku() string
+	GetProductSalePrice() *Money
+	GetQuantityRefunded() float64
+	GetDiscounts() []*Discount
+	GetOrderItem() OrderItemInterface
+}
+
+type CreditMemoItem struct {
+	ID               string           `json:"id"`
+	ProductName      *string          `json:"product_name,omitempty"`
+	ProductSku       string           `json:"product_sku"`
+	ProductSalePrice *Money           `json:"product_sale_price"`
+	QuantityRefunded float64          `json:"quantity_refunded"`
+	Discounts        []*Discount      `json:"discounts,omitempty"`
+	OrderItem        OrderItemInterface `json:"order_item,omitempty"`
+}
+
+func (CreditMemoItem) IsCreditMemoItemInterface() {}
+func (v CreditMemoItem) GetID() string { return v.ID }
+func (v CreditMemoItem) GetProductName() *string { return v.ProductName }
+func (v CreditMemoItem) GetProductSku() string { return v.ProductSku }
+func (v CreditMemoItem) GetProductSalePrice() *Money { return v.ProductSalePrice }
+func (v CreditMemoItem) GetQuantityRefunded() float64 { return v.QuantityRefunded }
+func (v CreditMemoItem) GetDiscounts() []*Discount { return v.Discounts }
+func (v CreditMemoItem) GetOrderItem() OrderItemInterface { return v.OrderItem }
 
 type ConfirmationStatusEnum string
 
@@ -770,6 +1098,246 @@ func (e *CountryCodeEnum) UnmarshalJSON(b []byte) error {
 }
 
 func (e CountryCodeEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type CurrencyEnum string
+
+const (
+	CurrencyEnumUsd CurrencyEnum = "USD"
+	CurrencyEnumEur CurrencyEnum = "EUR"
+	CurrencyEnumGbp CurrencyEnum = "GBP"
+	CurrencyEnumCad CurrencyEnum = "CAD"
+	CurrencyEnumAud CurrencyEnum = "AUD"
+	CurrencyEnumJpy CurrencyEnum = "JPY"
+	CurrencyEnumCny CurrencyEnum = "CNY"
+	CurrencyEnumChf CurrencyEnum = "CHF"
+	CurrencyEnumSek CurrencyEnum = "SEK"
+	CurrencyEnumNok CurrencyEnum = "NOK"
+	CurrencyEnumDkk CurrencyEnum = "DKK"
+	CurrencyEnumNzd CurrencyEnum = "NZD"
+	CurrencyEnumMxn CurrencyEnum = "MXN"
+	CurrencyEnumSgd CurrencyEnum = "SGD"
+	CurrencyEnumHkd CurrencyEnum = "HKD"
+	CurrencyEnumInr CurrencyEnum = "INR"
+	CurrencyEnumBrl CurrencyEnum = "BRL"
+	CurrencyEnumZar CurrencyEnum = "ZAR"
+	CurrencyEnumRub CurrencyEnum = "RUB"
+	CurrencyEnumKrw CurrencyEnum = "KRW"
+	CurrencyEnumTry CurrencyEnum = "TRY"
+	CurrencyEnumPln CurrencyEnum = "PLN"
+	CurrencyEnumCzk CurrencyEnum = "CZK"
+	CurrencyEnumHuf CurrencyEnum = "HUF"
+	CurrencyEnumRon CurrencyEnum = "RON"
+	CurrencyEnumBgn CurrencyEnum = "BGN"
+	CurrencyEnumHrk CurrencyEnum = "HRK"
+	CurrencyEnumIls CurrencyEnum = "ILS"
+	CurrencyEnumPhp CurrencyEnum = "PHP"
+	CurrencyEnumThb CurrencyEnum = "THB"
+	CurrencyEnumMyr CurrencyEnum = "MYR"
+	CurrencyEnumIdr CurrencyEnum = "IDR"
+	CurrencyEnumAed CurrencyEnum = "AED"
+	CurrencyEnumSar CurrencyEnum = "SAR"
+	CurrencyEnumQar CurrencyEnum = "QAR"
+	CurrencyEnumKwd CurrencyEnum = "KWD"
+	CurrencyEnumBhd CurrencyEnum = "BHD"
+	CurrencyEnumOmr CurrencyEnum = "OMR"
+	CurrencyEnumJod CurrencyEnum = "JOD"
+	CurrencyEnumLbp CurrencyEnum = "LBP"
+	CurrencyEnumEgp CurrencyEnum = "EGP"
+	CurrencyEnumMad CurrencyEnum = "MAD"
+	CurrencyEnumTnd CurrencyEnum = "TND"
+	CurrencyEnumDzd CurrencyEnum = "DZD"
+	CurrencyEnumLyd CurrencyEnum = "LYD"
+	CurrencyEnumNgn CurrencyEnum = "NGN"
+	CurrencyEnumGhs CurrencyEnum = "GHS"
+	CurrencyEnumKes CurrencyEnum = "KES"
+	CurrencyEnumTzs CurrencyEnum = "TZS"
+	CurrencyEnumUgx CurrencyEnum = "UGX"
+	CurrencyEnumEtb CurrencyEnum = "ETB"
+	CurrencyEnumUah CurrencyEnum = "UAH"
+	CurrencyEnumGel CurrencyEnum = "GEL"
+	CurrencyEnumAmd CurrencyEnum = "AMD"
+	CurrencyEnumAzn CurrencyEnum = "AZN"
+	CurrencyEnumKzt CurrencyEnum = "KZT"
+	CurrencyEnumUzs CurrencyEnum = "UZS"
+	CurrencyEnumBdt CurrencyEnum = "BDT"
+	CurrencyEnumPkr CurrencyEnum = "PKR"
+	CurrencyEnumLkr CurrencyEnum = "LKR"
+	CurrencyEnumNpr CurrencyEnum = "NPR"
+	CurrencyEnumMmk CurrencyEnum = "MMK"
+	CurrencyEnumKhm CurrencyEnum = "KHM"
+	CurrencyEnumLak CurrencyEnum = "LAK"
+	CurrencyEnumVnd CurrencyEnum = "VND"
+	CurrencyEnumMop CurrencyEnum = "MOP"
+	CurrencyEnumTwd CurrencyEnum = "TWD"
+)
+
+var AllCurrencyEnum = []CurrencyEnum{
+	CurrencyEnumUsd,
+	CurrencyEnumEur,
+	CurrencyEnumGbp,
+	CurrencyEnumCad,
+	CurrencyEnumAud,
+	CurrencyEnumJpy,
+	CurrencyEnumCny,
+	CurrencyEnumChf,
+	CurrencyEnumSek,
+	CurrencyEnumNok,
+	CurrencyEnumDkk,
+	CurrencyEnumNzd,
+	CurrencyEnumMxn,
+	CurrencyEnumSgd,
+	CurrencyEnumHkd,
+	CurrencyEnumInr,
+	CurrencyEnumBrl,
+	CurrencyEnumZar,
+	CurrencyEnumRub,
+	CurrencyEnumKrw,
+	CurrencyEnumTry,
+	CurrencyEnumPln,
+	CurrencyEnumCzk,
+	CurrencyEnumHuf,
+	CurrencyEnumRon,
+	CurrencyEnumBgn,
+	CurrencyEnumHrk,
+	CurrencyEnumIls,
+	CurrencyEnumPhp,
+	CurrencyEnumThb,
+	CurrencyEnumMyr,
+	CurrencyEnumIdr,
+	CurrencyEnumAed,
+	CurrencyEnumSar,
+	CurrencyEnumQar,
+	CurrencyEnumKwd,
+	CurrencyEnumBhd,
+	CurrencyEnumOmr,
+	CurrencyEnumJod,
+	CurrencyEnumLbp,
+	CurrencyEnumEgp,
+	CurrencyEnumMad,
+	CurrencyEnumTnd,
+	CurrencyEnumDzd,
+	CurrencyEnumLyd,
+	CurrencyEnumNgn,
+	CurrencyEnumGhs,
+	CurrencyEnumKes,
+	CurrencyEnumTzs,
+	CurrencyEnumUgx,
+	CurrencyEnumEtb,
+	CurrencyEnumUah,
+	CurrencyEnumGel,
+	CurrencyEnumAmd,
+	CurrencyEnumAzn,
+	CurrencyEnumKzt,
+	CurrencyEnumUzs,
+	CurrencyEnumBdt,
+	CurrencyEnumPkr,
+	CurrencyEnumLkr,
+	CurrencyEnumNpr,
+	CurrencyEnumMmk,
+	CurrencyEnumKhm,
+	CurrencyEnumLak,
+	CurrencyEnumVnd,
+	CurrencyEnumMop,
+	CurrencyEnumTwd,
+}
+
+func (e CurrencyEnum) IsValid() bool {
+	switch e {
+	case CurrencyEnumUsd, CurrencyEnumEur, CurrencyEnumGbp, CurrencyEnumCad, CurrencyEnumAud, CurrencyEnumJpy, CurrencyEnumCny, CurrencyEnumChf, CurrencyEnumSek, CurrencyEnumNok, CurrencyEnumDkk, CurrencyEnumNzd, CurrencyEnumMxn, CurrencyEnumSgd, CurrencyEnumHkd, CurrencyEnumInr, CurrencyEnumBrl, CurrencyEnumZar, CurrencyEnumRub, CurrencyEnumKrw, CurrencyEnumTry, CurrencyEnumPln, CurrencyEnumCzk, CurrencyEnumHuf, CurrencyEnumRon, CurrencyEnumBgn, CurrencyEnumHrk, CurrencyEnumIls, CurrencyEnumPhp, CurrencyEnumThb, CurrencyEnumMyr, CurrencyEnumIdr, CurrencyEnumAed, CurrencyEnumSar, CurrencyEnumQar, CurrencyEnumKwd, CurrencyEnumBhd, CurrencyEnumOmr, CurrencyEnumJod, CurrencyEnumLbp, CurrencyEnumEgp, CurrencyEnumMad, CurrencyEnumTnd, CurrencyEnumDzd, CurrencyEnumLyd, CurrencyEnumNgn, CurrencyEnumGhs, CurrencyEnumKes, CurrencyEnumTzs, CurrencyEnumUgx, CurrencyEnumEtb, CurrencyEnumUah, CurrencyEnumGel, CurrencyEnumAmd, CurrencyEnumAzn, CurrencyEnumKzt, CurrencyEnumUzs, CurrencyEnumBdt, CurrencyEnumPkr, CurrencyEnumLkr, CurrencyEnumNpr, CurrencyEnumMmk, CurrencyEnumKhm, CurrencyEnumLak, CurrencyEnumVnd, CurrencyEnumMop, CurrencyEnumTwd:
+		return true
+	}
+	return false
+}
+
+func (e CurrencyEnum) String() string {
+	return string(e)
+}
+
+func (e *CurrencyEnum) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = CurrencyEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid CurrencyEnum", str)
+	}
+	return nil
+}
+
+func (e CurrencyEnum) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *CurrencyEnum) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e CurrencyEnum) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type SortEnum string
+
+const (
+	SortEnumAsc  SortEnum = "ASC"
+	SortEnumDesc SortEnum = "DESC"
+)
+
+var AllSortEnum = []SortEnum{
+	SortEnumAsc,
+	SortEnumDesc,
+}
+
+func (e SortEnum) IsValid() bool {
+	switch e {
+	case SortEnumAsc, SortEnumDesc:
+		return true
+	}
+	return false
+}
+
+func (e SortEnum) String() string {
+	return string(e)
+}
+
+func (e *SortEnum) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = SortEnum(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid SortEnum", str)
+	}
+	return nil
+}
+
+func (e SortEnum) MarshalGQL(w io.Writer) {
+	fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *SortEnum) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e SortEnum) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

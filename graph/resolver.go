@@ -12,6 +12,7 @@ import (
 // Resolver is the root resolver. It holds dependencies shared across all resolvers.
 type Resolver struct {
 	CustomerService *service.CustomerService
+	OrderService    *service.OrderService
 	TokenResolver   *middleware.TokenResolver
 }
 
@@ -22,12 +23,20 @@ func NewResolver(db *sql.DB, jwtManager *jwt.Manager) (*Resolver, error) {
 	newsletterRepo := repository.NewNewsletterRepository(db)
 	storeRepo := repository.NewStoreRepository(db)
 	groupRepo := repository.NewGroupRepository(db)
+	orderRepo := repository.NewOrderRepository(db)
 
 	customerService := service.NewCustomerService(
 		customerRepo, addressRepo, tokenRepo, newsletterRepo, storeRepo, groupRepo, db,
 	)
+	orderService := service.NewOrderService(orderRepo)
 
 	return &Resolver{
 		CustomerService: customerService,
+		OrderService:    orderService,
 	}, nil
 }
+
+// Customer returns the CustomerResolver implementation.
+func (r *Resolver) Customer() CustomerResolver { return &customerResolver{r} }
+
+type customerResolver struct{ *Resolver }

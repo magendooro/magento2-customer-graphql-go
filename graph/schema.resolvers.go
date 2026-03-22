@@ -14,6 +14,23 @@ import (
 	"github.com/magendooro/magento2-customer-graphql-go/graph/model"
 )
 
+// Orders is the resolver for the orders field on Customer.
+func (r *customerResolver) Orders(ctx context.Context, obj *model.Customer, filter *model.CustomerOrdersFilterInput, currentPage *int, pageSize *int, sort *model.CustomerOrderSortInput) (*model.CustomerOrders, error) {
+	customerID, err := strconv.Atoi(obj.ID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid customer id: %w", err)
+	}
+	page := 1
+	if currentPage != nil {
+		page = *currentPage
+	}
+	size := 20
+	if pageSize != nil {
+		size = *pageSize
+	}
+	return r.OrderService.GetOrders(ctx, customerID, filter, sort, page, size)
+}
+
 // GenerateCustomerToken is the resolver for the generateCustomerToken field.
 func (r *mutationResolver) GenerateCustomerToken(ctx context.Context, email string, password string) (*model.CustomerToken, error) {
 	return r.CustomerService.GenerateToken(ctx, email, password)

@@ -28,6 +28,7 @@ func NewExecutableSchema(cfg Config) graphql.ExecutableSchema {
 type Config = graphql.Config[ResolverRoot, DirectiveRoot, ComplexityRoot]
 
 type ResolverRoot interface {
+	Customer() CustomerResolver
 	Mutation() MutationResolver
 	Query() QueryResolver
 }
@@ -2778,6 +2779,8 @@ func (ec *executionContext) fieldContext_CustomerOutput_customer(_ context.Conte
 				return ec.fieldContext_Customer_group_id(ctx, field)
 			case "group":
 				return ec.fieldContext_Customer_group(ctx, field)
+			case "orders":
+				return ec.fieldContext_Customer_orders(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Customer", field.Name)
 		},
@@ -3076,6 +3079,8 @@ func (ec *executionContext) fieldContext_Mutation_changeCustomerPassword(ctx con
 				return ec.fieldContext_Customer_group_id(ctx, field)
 			case "group":
 				return ec.fieldContext_Customer_group(ctx, field)
+			case "orders":
+				return ec.fieldContext_Customer_orders(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Customer", field.Name)
 		},
@@ -3827,6 +3832,8 @@ func (ec *executionContext) fieldContext_Query_customer(_ context.Context, field
 				return ec.fieldContext_Customer_group_id(ctx, field)
 			case "group":
 				return ec.fieldContext_Customer_group(ctx, field)
+			case "orders":
+				return ec.fieldContext_Customer_orders(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type Customer", field.Name)
 		},
@@ -6165,6 +6172,11 @@ func (ec *executionContext) _Customer(ctx context.Context, sel ast.SelectionSet,
 			out.Values[i] = ec._Customer_group_id(ctx, field, obj)
 		case "group":
 			out.Values[i] = ec._Customer_group(ctx, field, obj)
+		case "orders":
+			field := field
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler {
+				return ec._Customer_orders(ctx, field, obj)
+			})
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}

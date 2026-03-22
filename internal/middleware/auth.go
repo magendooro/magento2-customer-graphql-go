@@ -3,52 +3,53 @@ package middleware
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
+
+	"github.com/magendooro/magento2-customer-graphql-go/internal/jwt"
 )
 
 const CustomerIDKey contextKey = "customer_id"
 const BearerTokenKey contextKey = "bearer_token"
 
-// TokenResolver looks up customer tokens in Magento's oauth_token table.
+// TokenResolver validates bearer tokens. It tries JWT first, then falls back to oauth_token.
 type TokenResolver struct {
-	db    *sql.DB
-	cache map[string]tokenEntry
-	mu    sync.RWMutex
+	db         *sql.DB
+	jwtManager *jwt.Manager
 }
 
-type tokenEntry struct {
-	customerID int
-	expiresAt  time.Time
-}
-
-func NewTokenResolver(db *sql.DB) *TokenResolver {
+func NewTokenResolver(db *sql.DB, jwtManager *jwt.Manager) *TokenResolver {
 	return &TokenResolver{
-		db:    db,
-		cache: make(map[string]tokenEntry),
+		db:         db,
+		jwtManager: jwtManager,
 	}
 }
 
-// Resolve returns the customer_id for a given Bearer token, or 0 if invalid/expired.
+// Resolve returns the customer_id for a given Bearer token.
 func (tr *TokenResolver) Resolve(token string) (int, error) {
-	tr.mu.RLock()
-	if entry, ok := tr.cache[token]; ok {
-		tr.mu.RUnlock()
-		if time.Now().Before(entry.expiresAt) {
-			return entry.customerID, nil
+	// Try JWT validation first (Magento 2.4+ default)
+	if tr.jwtManager != nil {
+		customerID, err := tr.jwtManager.Validate(token)
+		if err == nil {
+			// Check revocation in jwt_auth_revoked
+			revoked, err := tr.isJWTRevoked(customerID, token)
+			if err != nil {
+				log.Debug().Err(err).Msg("jwt revocation check failed")
+			}
+			if !revoked {
+				return customerID, nil
+			}
+			log.Debug().Int("customer_id", customerID).Msg("jwt token revoked")
+			return 0, fmt.Errorf("token has been revoked")
 		}
-		// Expired cache entry, fall through to DB
-		tr.mu.Lock()
-		delete(tr.cache, token)
-		tr.mu.Unlock()
-	} else {
-		tr.mu.RUnlock()
+		log.Debug().Err(err).Msg("jwt validation failed, trying oauth_token")
 	}
 
+	// Fallback: oauth_token table lookup (legacy opaque tokens)
 	var customerID int
 	err := tr.db.QueryRow(
 		`SELECT customer_id FROM oauth_token
@@ -58,27 +59,34 @@ func (tr *TokenResolver) Resolve(token string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	tr.mu.Lock()
-	tr.cache[token] = tokenEntry{
-		customerID: customerID,
-		expiresAt:  time.Now().Add(5 * time.Minute),
-	}
-	tr.mu.Unlock()
-
 	return customerID, nil
 }
 
-// Invalidate removes a token from the cache.
-func (tr *TokenResolver) Invalidate(token string) {
-	tr.mu.Lock()
-	delete(tr.cache, token)
-	tr.mu.Unlock()
+// isJWTRevoked checks the jwt_auth_revoked table.
+func (tr *TokenResolver) isJWTRevoked(customerID int, tokenString string) (bool, error) {
+	var revokeBefore int64
+	err := tr.db.QueryRow(
+		"SELECT revoke_before FROM jwt_auth_revoked WHERE user_type_id = ? AND user_id = ?",
+		jwt.CustomerUserType, customerID,
+	).Scan(&revokeBefore)
+	if err == sql.ErrNoRows {
+		return false, nil // Not revoked
+	}
+	if err != nil {
+		return false, err
+	}
+
+	// Get token's issued-at time
+	iat, err := tr.jwtManager.GetIssuedAt(tokenString)
+	if err != nil {
+		return true, nil // Can't parse iat — treat as revoked
+	}
+
+	return iat.Unix() <= revokeBefore, nil
 }
 
 // AuthMiddleware extracts the Bearer token from the Authorization header
-// and resolves it to a customer_id. The customer_id (or 0 for unauthenticated)
-// is injected into the request context.
+// and resolves it to a customer_id.
 func AuthMiddleware(resolver *TokenResolver) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -118,4 +126,15 @@ func GetBearerToken(ctx context.Context) string {
 		return t
 	}
 	return ""
+}
+
+// RevokeJWT writes a revocation record to jwt_auth_revoked.
+func (tr *TokenResolver) RevokeJWT(customerID int) error {
+	_, err := tr.db.Exec(
+		`INSERT INTO jwt_auth_revoked (user_type_id, user_id, revoke_before)
+		 VALUES (?, ?, ?)
+		 ON DUPLICATE KEY UPDATE revoke_before = VALUES(revoke_before)`,
+		jwt.CustomerUserType, customerID, time.Now().Unix(),
+	)
+	return err
 }

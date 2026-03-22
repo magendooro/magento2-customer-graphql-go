@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -10,12 +11,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/rs/zerolog/log"
 
 	"github.com/magendooro/magento2-customer-graphql-go/graph/model"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/repository"
+)
+
+// Default lockout and password config (matching Magento defaults)
+const (
+	defaultLockoutFailures  = 10
+	defaultLockoutThreshold = 10 // minutes
+	defaultMinPasswordLen   = 8
+	defaultRequiredClasses  = 3
 )
 
 type CustomerService struct {
@@ -25,6 +35,7 @@ type CustomerService struct {
 	newsletterRepo *repository.NewsletterRepository
 	storeRepo      *repository.StoreRepository
 	groupRepo      *repository.GroupRepository
+	db             *sql.DB
 }
 
 func NewCustomerService(
@@ -34,6 +45,7 @@ func NewCustomerService(
 	newsletterRepo *repository.NewsletterRepository,
 	storeRepo *repository.StoreRepository,
 	groupRepo *repository.GroupRepository,
+	db *sql.DB,
 ) *CustomerService {
 	return &CustomerService{
 		customerRepo:   customerRepo,
@@ -42,7 +54,99 @@ func NewCustomerService(
 		newsletterRepo: newsletterRepo,
 		storeRepo:      storeRepo,
 		groupRepo:      groupRepo,
+		db:             db,
 	}
+}
+
+// validatePassword checks password strength against Magento rules.
+func (s *CustomerService) validatePassword(password string) error {
+	minLen := defaultMinPasswordLen
+	requiredClasses := defaultRequiredClasses
+
+	// Try to read from core_config_data
+	s.db.QueryRow("SELECT value FROM core_config_data WHERE path = 'customer/password/minimum_password_length' AND scope = 'default'").Scan(&minLen)
+	s.db.QueryRow("SELECT value FROM core_config_data WHERE path = 'customer/password/required_character_classes_number' AND scope = 'default'").Scan(&requiredClasses)
+
+	if len(password) < minLen {
+		return fmt.Errorf("the password needs at least %d characters. Create a new password and try again", minLen)
+	}
+	if len(password) > 256 {
+		return fmt.Errorf("please enter a valid password with at most 256 characters")
+	}
+
+	// Count character classes: lowercase, uppercase, digits, special
+	var hasLower, hasUpper, hasDigit, hasSpecial bool
+	for _, r := range password {
+		switch {
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsDigit(r):
+			hasDigit = true
+		default:
+			hasSpecial = true
+		}
+	}
+	classCount := 0
+	if hasLower {
+		classCount++
+	}
+	if hasUpper {
+		classCount++
+	}
+	if hasDigit {
+		classCount++
+	}
+	if hasSpecial {
+		classCount++
+	}
+
+	if classCount < requiredClasses {
+		return fmt.Errorf("minimum of different classes of characters in password is %d. Classes of characters: Lower Case, Upper Case, Digits, Special Characters", requiredClasses)
+	}
+	return nil
+}
+
+// checkAccountLockout returns an error if the customer account is locked.
+func (s *CustomerService) checkAccountLockout(data *repository.CustomerData) error {
+	if data.LockExpires != nil && *data.LockExpires != "" {
+		lockExpires, err := time.Parse("2006-01-02 15:04:05", *data.LockExpires)
+		if err == nil && time.Now().UTC().Before(lockExpires) {
+			return fmt.Errorf("the account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later")
+		}
+	}
+	return nil
+}
+
+// recordLoginFailure increments the failure counter and potentially locks the account.
+func (s *CustomerService) recordLoginFailure(ctx context.Context, customerID int) {
+	maxFailures := defaultLockoutFailures
+	lockoutMinutes := defaultLockoutThreshold
+	s.db.QueryRow("SELECT value FROM core_config_data WHERE path = 'customer/password/lockout_failures' AND scope = 'default'").Scan(&maxFailures)
+	s.db.QueryRow("SELECT value FROM core_config_data WHERE path = 'customer/password/lockout_threshold' AND scope = 'default'").Scan(&lockoutMinutes)
+
+	// Use raw SQL for atomic increment (map-based update doesn't support expressions)
+	s.db.ExecContext(ctx,
+		"UPDATE customer_entity SET failures_num = COALESCE(failures_num, 0) + 1, first_failure = COALESCE(first_failure, NOW()) WHERE entity_id = ?",
+		customerID,
+	)
+
+	// Check if we should lock
+	var failuresNum int
+	s.db.QueryRowContext(ctx, "SELECT COALESCE(failures_num, 0) FROM customer_entity WHERE entity_id = ?", customerID).Scan(&failuresNum)
+	if failuresNum >= maxFailures {
+		lockExpires := time.Now().UTC().Add(time.Duration(lockoutMinutes) * time.Minute).Format("2006-01-02 15:04:05")
+		s.customerRepo.Update(ctx, customerID, map[string]interface{}{"lock_expires": lockExpires})
+	}
+}
+
+// resetLoginFailures clears the failure counter on successful login.
+func (s *CustomerService) resetLoginFailures(ctx context.Context, customerID int) {
+	s.db.ExecContext(ctx,
+		"UPDATE customer_entity SET failures_num = 0, first_failure = NULL, lock_expires = NULL WHERE entity_id = ?",
+		customerID,
+	)
 }
 
 // GetCustomer returns the authenticated customer's data.
@@ -67,6 +171,23 @@ func (s *CustomerService) GetCustomer(ctx context.Context) (*model.Customer, err
 		customer.Addresses = s.mapAddresses(addresses, data.DefaultBilling, data.DefaultShipping)
 	}
 
+	// Populate addressesV2 with default pagination (#11)
+	if len(customer.Addresses) > 0 {
+		totalCount := len(customer.Addresses)
+		currentPage := 1
+		pageSize := 20
+		totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+		customer.AddressesV2 = &model.CustomerAddresses{
+			Items:      customer.Addresses,
+			TotalCount: &totalCount,
+			PageInfo: &model.SearchResultPageInfo{
+				CurrentPage: &currentPage,
+				PageSize:    &pageSize,
+				TotalPages:  &totalPages,
+			},
+		}
+	}
+
 	// Check newsletter subscription
 	subscribed, err := s.newsletterRepo.IsSubscribed(ctx, customerID)
 	if err != nil {
@@ -77,23 +198,34 @@ func (s *CustomerService) GetCustomer(ctx context.Context) (*model.Customer, err
 	return customer, nil
 }
 
-// GenerateToken authenticates a customer and returns a token.
+// GenerateToken authenticates a customer and returns a JWT token.
 func (s *CustomerService) GenerateToken(ctx context.Context, email, password string) (*model.CustomerToken, error) {
+	authErr := fmt.Errorf("the account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later")
+
 	storeID := middleware.GetStoreID(ctx)
 	websiteID, _ := s.storeRepo.GetWebsiteIDForStore(ctx, storeID)
 
 	data, err := s.customerRepo.GetByEmail(ctx, email, websiteID)
 	if err != nil {
-		return nil, fmt.Errorf("the account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later")
+		return nil, authErr
 	}
 
 	if data.IsActive != 1 {
-		return nil, fmt.Errorf("the account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later")
+		return nil, authErr
+	}
+
+	// Check account lockout (#12)
+	if err := s.checkAccountLockout(data); err != nil {
+		return nil, err
 	}
 
 	if !repository.VerifyPassword(data.PasswordHash, password) {
-		return nil, fmt.Errorf("the account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later")
+		s.recordLoginFailure(ctx, data.EntityID)
+		return nil, authErr
 	}
+
+	// Success — reset failure counters
+	s.resetLoginFailures(ctx, data.EntityID)
 
 	token, err := s.tokenRepo.Create(ctx, data.EntityID)
 	if err != nil {
@@ -135,6 +267,11 @@ func (s *CustomerService) IsEmailAvailable(ctx context.Context, email string) (*
 
 // CreateCustomer registers a new customer account.
 func (s *CustomerService) CreateCustomer(ctx context.Context, input model.CustomerCreateInput) (*model.CustomerOutput, error) {
+	// Validate password strength (#13)
+	if err := s.validatePassword(input.Password); err != nil {
+		return nil, err
+	}
+
 	storeID := middleware.GetStoreID(ctx)
 	websiteID, _ := s.storeRepo.GetWebsiteIDForStore(ctx, storeID)
 
@@ -259,6 +396,10 @@ func (s *CustomerService) ChangePassword(ctx context.Context, currentPassword, n
 
 	if !repository.VerifyPassword(data.PasswordHash, currentPassword) {
 		return nil, fmt.Errorf("the password doesn't match this account. Verify the password and try again")
+	}
+
+	if err := s.validatePassword(newPassword); err != nil {
+		return nil, err
 	}
 
 	hash, err := repository.HashPassword(newPassword)
@@ -476,6 +617,10 @@ func (s *CustomerService) ResetPassword(ctx context.Context, email, resetPasswor
 		if err == nil && time.Since(created) > 2*time.Hour {
 			return false, fmt.Errorf("your password reset link has expired")
 		}
+	}
+
+	if err := s.validatePassword(newPassword); err != nil {
+		return false, err
 	}
 
 	hash, err := repository.HashPassword(newPassword)

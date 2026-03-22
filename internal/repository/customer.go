@@ -43,6 +43,8 @@ type CustomerData struct {
 	Gender            *int
 	RPToken           *string
 	RPTokenCreatedAt  *string
+	FailuresNum       int
+	LockExpires       *string
 }
 
 type CustomerRepository struct {
@@ -60,7 +62,8 @@ func (r *CustomerRepository) GetByID(ctx context.Context, id int) (*CustomerData
 		       created_at, updated_at, is_active,
 		       prefix, firstname, middlename, lastname, suffix,
 		       dob, COALESCE(password_hash, ''), default_billing, default_shipping,
-		       taxvat, confirmation, gender, rp_token, rp_token_created_at
+		       taxvat, confirmation, gender, rp_token, rp_token_created_at,
+		       COALESCE(failures_num, 0), lock_expires
 		FROM customer_entity
 		WHERE entity_id = ?`,
 		id,
@@ -73,6 +76,7 @@ func (r *CustomerRepository) GetByID(ctx context.Context, id int) (*CustomerData
 		&c.Prefix, &c.Firstname, &c.Middlename, &c.Lastname, &c.Suffix,
 		&c.Dob, &c.PasswordHash, &c.DefaultBilling, &c.DefaultShipping,
 		&c.Taxvat, &c.Confirmation, &c.Gender, &c.RPToken, &c.RPTokenCreatedAt,
+		&c.FailuresNum, &c.LockExpires,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("customer %d not found: %w", id, err)
@@ -87,7 +91,8 @@ func (r *CustomerRepository) GetByEmail(ctx context.Context, email string, websi
 		       created_at, updated_at, is_active,
 		       prefix, firstname, middlename, lastname, suffix,
 		       dob, COALESCE(password_hash, ''), default_billing, default_shipping,
-		       taxvat, confirmation, gender, rp_token, rp_token_created_at
+		       taxvat, confirmation, gender, rp_token, rp_token_created_at,
+		       COALESCE(failures_num, 0), lock_expires
 		FROM customer_entity
 		WHERE email = ? AND website_id = ?`,
 		email, websiteID,
@@ -100,6 +105,7 @@ func (r *CustomerRepository) GetByEmail(ctx context.Context, email string, websi
 		&c.Prefix, &c.Firstname, &c.Middlename, &c.Lastname, &c.Suffix,
 		&c.Dob, &c.PasswordHash, &c.DefaultBilling, &c.DefaultShipping,
 		&c.Taxvat, &c.Confirmation, &c.Gender, &c.RPToken, &c.RPTokenCreatedAt,
+		&c.FailuresNum, &c.LockExpires,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("customer %s not found: %w", email, err)

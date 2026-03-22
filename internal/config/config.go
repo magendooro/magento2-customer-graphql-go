@@ -12,6 +12,7 @@ type Config struct {
 	Database DatabaseConfig `mapstructure:"database"`
 	Redis    RedisConfig    `mapstructure:"redis"`
 	GraphQL  GraphQLConfig  `mapstructure:"graphql"`
+	Magento  MagentoConfig  `mapstructure:"magento"`
 	Logging  LoggingConfig  `mapstructure:"logging"`
 }
 
@@ -46,6 +47,11 @@ type GraphQLConfig struct {
 	MaxDepth        int `mapstructure:"max_depth"`
 }
 
+type MagentoConfig struct {
+	CryptKey      string `mapstructure:"crypt_key"`
+	JWTTTLMinutes int    `mapstructure:"jwt_ttl_minutes"`
+}
+
 type LoggingConfig struct {
 	Level  string `mapstructure:"level"`
 	Pretty bool   `mapstructure:"pretty"`
@@ -75,6 +81,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("redis.db", 0)
 	viper.SetDefault("graphql.complexity_limit", 1000)
 	viper.SetDefault("graphql.max_depth", 15)
+	viper.SetDefault("magento.jwt_ttl_minutes", 60)
 	viper.SetDefault("logging.level", "info")
 	viper.SetDefault("logging.pretty", false)
 
@@ -93,6 +100,8 @@ func Load() (*Config, error) {
 	viper.BindEnv("redis.password", "REDIS_PASSWORD")
 	viper.BindEnv("redis.db", "REDIS_DB")
 	viper.BindEnv("server.port", "SERVER_PORT", "PORT")
+	viper.BindEnv("magento.crypt_key", "MAGENTO_CRYPT_KEY")
+	viper.BindEnv("magento.jwt_ttl_minutes", "JWT_TTL_MINUTES")
 	viper.BindEnv("logging.level", "LOG_LEVEL")
 	viper.BindEnv("logging.pretty", "LOG_PRETTY")
 

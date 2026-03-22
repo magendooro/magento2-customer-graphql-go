@@ -38,6 +38,12 @@ func CacheMiddleware(c *cache.Client) func(http.Handler) http.Handler {
 			}
 			r.Body = io.NopCloser(bytes.NewReader(body))
 
+			// Skip cache for mutations
+			if bytes.Contains(body, []byte("mutation")) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			storeCode := r.Header.Get("Store")
 			if storeCode == "" {
 				storeCode = "default"

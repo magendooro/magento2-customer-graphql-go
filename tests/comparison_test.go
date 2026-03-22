@@ -401,9 +401,9 @@ func TestCompare_TokenLifecycle(t *testing.T) {
 	if token == "" {
 		t.Fatal("token should not be empty")
 	}
-	// Magento tokens are 32-char hex strings (from oauth_token)
-	if len(token) != 32 {
-		t.Errorf("token length: Go=%d, Magento=32", len(token))
+	// JWT tokens are ~160+ chars (header.payload.signature)
+	if len(token) < 50 {
+		t.Errorf("token too short for JWT: length=%d", len(token))
 	}
 
 	// 2. Token works for customer query
@@ -433,6 +433,10 @@ func TestCompare_TokenLifecycle(t *testing.T) {
 	if len(postRevokeResp.Errors) == 0 {
 		t.Error("revoked token should return error")
 	}
+
+	// Clean up revocation so subsequent tests can generate tokens
+	// (in a real system this wouldn't be needed — new tokens get fresh iat)
+	cleanupRevocation(t)
 }
 
 // ─── Update Lifecycle Comparison ────────────────────────────────────────────
@@ -897,4 +901,11 @@ func TestCompare_AddressV2Mutations(t *testing.T) {
 
 func itoa(i int) string {
 	return strconv.Itoa(i)
+}
+
+func cleanupRevocation(t *testing.T) {
+	t.Helper()
+	if testDB != nil {
+		testDB.Exec("DELETE FROM jwt_auth_revoked WHERE user_type_id = 3 AND user_id = 1")
+	}
 }

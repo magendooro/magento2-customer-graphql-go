@@ -20,6 +20,7 @@ import (
 	"github.com/magendooro/magento2-customer-graphql-go/internal/cache"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/database"
+	"github.com/magendooro/magento2-customer-graphql-go/internal/jwt"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
 )
 
@@ -57,9 +58,19 @@ func New(cfg *config.Config) (*App, error) {
 
 func (a *App) Run() error {
 	storeResolver := middleware.NewStoreResolver(a.db)
-	tokenResolver := middleware.NewTokenResolver(a.db)
 
-	resolver, err := graph.NewResolver(a.db)
+	// Initialize JWT manager (requires MAGENTO_CRYPT_KEY)
+	var jwtManager *jwt.Manager
+	if a.cfg.Magento.CryptKey != "" {
+		jwtManager = jwt.NewManager(a.cfg.Magento.CryptKey, a.cfg.Magento.JWTTTLMinutes)
+		log.Info().Int("ttl_minutes", a.cfg.Magento.JWTTTLMinutes).Msg("JWT authentication enabled")
+	} else {
+		log.Warn().Msg("MAGENTO_CRYPT_KEY not set — JWT token generation disabled, only legacy oauth_token supported")
+	}
+
+	tokenResolver := middleware.NewTokenResolver(a.db, jwtManager)
+
+	resolver, err := graph.NewResolver(a.db, jwtManager)
 	if err != nil {
 		return fmt.Errorf("failed to create resolver: %w", err)
 	}

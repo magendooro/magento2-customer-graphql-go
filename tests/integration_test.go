@@ -13,10 +13,12 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/magendooro/magento2-customer-graphql-go/graph"
+	"github.com/magendooro/magento2-customer-graphql-go/internal/jwt"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
 )
 
 var testHandler http.Handler
+var testDB *sql.DB
 
 func envOrDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
@@ -47,7 +49,17 @@ func TestMain(m *testing.M) {
 		panic("failed to ping test database: " + err.Error())
 	}
 
-	resolver, err := graph.NewResolver(db)
+	testDB = db
+
+	// Clean up any stale test state
+	db.Exec("DELETE FROM jwt_auth_revoked WHERE user_type_id = 3")
+	db.Exec("UPDATE customer_entity SET failures_num = 0, first_failure = NULL, lock_expires = NULL WHERE entity_id = 1")
+
+	// Read Magento crypt key for JWT
+	cryptKey := envOrDefault("MAGENTO_CRYPT_KEY", "base64KjBr8ZM6bmK4xIWfk2/K0+xHEn+Ym6/Ogyl7Y7otzso=")
+	jwtManager := jwt.NewManager(cryptKey, 60)
+
+	resolver, err := graph.NewResolver(db, jwtManager)
 	if err != nil {
 		panic("failed to create resolver: " + err.Error())
 	}
@@ -57,7 +69,7 @@ func TestMain(m *testing.M) {
 	}))
 
 	storeResolver := middleware.NewStoreResolver(db)
-	tokenResolver := middleware.NewTokenResolver(db)
+	tokenResolver := middleware.NewTokenResolver(db, jwtManager)
 
 	resolver.TokenResolver = tokenResolver
 

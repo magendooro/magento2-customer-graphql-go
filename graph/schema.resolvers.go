@@ -12,7 +12,6 @@ import (
 	"strconv"
 
 	"github.com/magendooro/magento2-customer-graphql-go/graph/model"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
 )
 
 // GenerateCustomerToken is the resolver for the generateCustomerToken field.
@@ -22,9 +21,6 @@ func (r *mutationResolver) GenerateCustomerToken(ctx context.Context, email stri
 
 // RevokeCustomerToken is the resolver for the revokeCustomerToken field.
 func (r *mutationResolver) RevokeCustomerToken(ctx context.Context) (*model.RevokeCustomerTokenOutput, error) {
-	if token := middleware.GetBearerToken(ctx); token != "" && r.TokenResolver != nil {
-		r.TokenResolver.Invalidate(token)
-	}
 	return r.CustomerService.RevokeToken(ctx)
 }
 

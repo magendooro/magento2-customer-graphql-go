@@ -2,7 +2,9 @@ package graph
 
 import (
 	"database/sql"
+	"fmt"
 
+	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/jwt"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/repository"
@@ -17,6 +19,12 @@ type Resolver struct {
 }
 
 func NewResolver(db *sql.DB, jwtManager *jwt.Manager) (*Resolver, error) {
+	// Initialize ConfigProvider (preloads all core_config_data)
+	cp, err := config.NewConfigProvider(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config provider: %w", err)
+	}
+
 	customerRepo := repository.NewCustomerRepository(db)
 	addressRepo := repository.NewAddressRepository(db)
 	tokenRepo := repository.NewTokenRepository(db, jwtManager)
@@ -27,9 +35,9 @@ func NewResolver(db *sql.DB, jwtManager *jwt.Manager) (*Resolver, error) {
 	orderRepo := repository.NewOrderRepository(db)
 
 	customerService := service.NewCustomerService(
-		customerRepo, addressRepo, tokenRepo, newsletterRepo, storeRepo, groupRepo, eavRepo, db,
+		customerRepo, addressRepo, tokenRepo, newsletterRepo, storeRepo, groupRepo, eavRepo, cp,
 	)
-	orderService := service.NewOrderService(orderRepo, db)
+	orderService := service.NewOrderService(orderRepo, cp)
 
 	return &Resolver{
 		CustomerService: customerService,

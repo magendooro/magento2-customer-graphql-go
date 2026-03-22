@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/magendooro/magento2-customer-graphql-go/graph/model"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
+	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/repository"
 )
 
@@ -36,7 +36,7 @@ type CustomerService struct {
 	storeRepo      *repository.StoreRepository
 	groupRepo      *repository.GroupRepository
 	eavRepo        *repository.EAVAttributeRepository
-	db             *sql.DB
+	cp             *config.ConfigProvider
 }
 
 func NewCustomerService(
@@ -47,7 +47,7 @@ func NewCustomerService(
 	storeRepo *repository.StoreRepository,
 	groupRepo *repository.GroupRepository,
 	eavRepo *repository.EAVAttributeRepository,
-	db *sql.DB,
+	cp *config.ConfigProvider,
 ) *CustomerService {
 	return &CustomerService{
 		customerRepo:   customerRepo,
@@ -57,18 +57,14 @@ func NewCustomerService(
 		storeRepo:      storeRepo,
 		groupRepo:      groupRepo,
 		eavRepo:        eavRepo,
-		db:             db,
+		cp:             cp,
 	}
 }
 
 // validatePassword checks password strength against Magento rules.
 func (s *CustomerService) validatePassword(password string) error {
-	minLen := defaultMinPasswordLen
-	requiredClasses := defaultRequiredClasses
-
-	// Try to read from core_config_data
-	s.db.QueryRow("SELECT value FROM core_config_data WHERE path = 'customer/password/minimum_password_length' AND scope = 'default'").Scan(&minLen)
-	s.db.QueryRow("SELECT value FROM core_config_data WHERE path = 'customer/password/required_character_classes_number' AND scope = 'default'").Scan(&requiredClasses)
+	minLen := s.cp.GetInt("customer/password/minimum_password_length", 0, defaultMinPasswordLen)
+	requiredClasses := s.cp.GetInt("customer/password/required_character_classes_number", 0, defaultRequiredClasses)
 
 	if len(password) < minLen {
 		return fmt.Errorf("the password needs at least %d characters. Create a new password and try again", minLen)
@@ -124,20 +120,13 @@ func (s *CustomerService) checkAccountLockout(data *repository.CustomerData) err
 
 // recordLoginFailure increments the failure counter and potentially locks the account.
 func (s *CustomerService) recordLoginFailure(ctx context.Context, customerID int) {
-	maxFailures := defaultLockoutFailures
-	lockoutMinutes := defaultLockoutThreshold
-	s.db.QueryRow("SELECT value FROM core_config_data WHERE path = 'customer/password/lockout_failures' AND scope = 'default'").Scan(&maxFailures)
-	s.db.QueryRow("SELECT value FROM core_config_data WHERE path = 'customer/password/lockout_threshold' AND scope = 'default'").Scan(&lockoutMinutes)
+	maxFailures := s.cp.GetInt("customer/password/lockout_failures", 0, defaultLockoutFailures)
+	lockoutMinutes := s.cp.GetInt("customer/password/lockout_threshold", 0, defaultLockoutThreshold)
 
-	// Use raw SQL for atomic increment (map-based update doesn't support expressions)
-	s.db.ExecContext(ctx,
-		"UPDATE customer_entity SET failures_num = COALESCE(failures_num, 0) + 1, first_failure = COALESCE(first_failure, NOW()) WHERE entity_id = ?",
-		customerID,
-	)
+	// Increment failures and check threshold via repository
+	s.customerRepo.IncrementLoginFailure(ctx, customerID)
 
-	// Check if we should lock
-	var failuresNum int
-	s.db.QueryRowContext(ctx, "SELECT COALESCE(failures_num, 0) FROM customer_entity WHERE entity_id = ?", customerID).Scan(&failuresNum)
+	failuresNum := s.customerRepo.GetLoginFailures(ctx, customerID)
 	if failuresNum >= maxFailures {
 		lockExpires := time.Now().UTC().Add(time.Duration(lockoutMinutes) * time.Minute).Format("2006-01-02 15:04:05")
 		s.customerRepo.Update(ctx, customerID, map[string]interface{}{"lock_expires": lockExpires})
@@ -146,10 +135,7 @@ func (s *CustomerService) recordLoginFailure(ctx context.Context, customerID int
 
 // resetLoginFailures clears the failure counter on successful login.
 func (s *CustomerService) resetLoginFailures(ctx context.Context, customerID int) {
-	s.db.ExecContext(ctx,
-		"UPDATE customer_entity SET failures_num = 0, first_failure = NULL, lock_expires = NULL WHERE entity_id = ?",
-		customerID,
-	)
+	s.customerRepo.ResetLoginFailures(ctx, customerID)
 }
 
 // GetCustomer returns the authenticated customer's data.
@@ -259,15 +245,13 @@ func (s *CustomerService) RevokeToken(ctx context.Context) (*model.RevokeCustome
 // always returns true to prevent email enumeration.
 func (s *CustomerService) IsEmailAvailable(ctx context.Context, email string) (*model.IsEmailAvailableOutput, error) {
 	// Check if email availability check is enabled (Magento default: disabled)
-	var configEnabled int
-	s.db.QueryRow("SELECT COALESCE(value, 0) FROM core_config_data WHERE path = 'customer/account/login/email_availability_check' AND scope = 'default'").Scan(&configEnabled)
-	if configEnabled == 0 {
+	storeID := middleware.GetStoreID(ctx)
+	if !s.cp.GetBool("customer/account/login/email_availability_check", storeID) {
 		// Config disabled — always return true (matches Magento 2.4.6+ default behavior)
 		available := true
 		return &model.IsEmailAvailableOutput{IsEmailAvailable: &available}, nil
 	}
 
-	storeID := middleware.GetStoreID(ctx)
 	websiteID, _ := s.storeRepo.GetWebsiteIDForStore(ctx, storeID)
 
 	exists, err := s.customerRepo.EmailExists(ctx, email, websiteID)

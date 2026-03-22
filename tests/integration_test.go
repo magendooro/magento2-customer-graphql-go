@@ -30,8 +30,8 @@ func envOrDefault(key, fallback string) string {
 func TestMain(m *testing.M) {
 	host := envOrDefault("TEST_DB_HOST", "localhost")
 	port := envOrDefault("TEST_DB_PORT", "3306")
-	user := envOrDefault("TEST_DB_USER", "fch")
-	password := envOrDefault("TEST_DB_PASSWORD", "")
+	user := envOrDefault("TEST_DB_USER", "magento_go")
+	password := envOrDefault("TEST_DB_PASSWORD", "magento_go")
 	dbName := envOrDefault("TEST_DB_NAME", "magento248")
 	socket := envOrDefault("TEST_DB_SOCKET", "/tmp/mysql.sock")
 

@@ -329,3 +329,268 @@ func TestStoreMiddleware(t *testing.T) {
 		t.Logf("store middleware error (may be expected): %s", resp.Errors[0].Message)
 	}
 }
+
+// generateTestToken is a helper that generates a customer token for tests.
+// Returns empty string and calls t.Skip if the customer doesn't exist.
+func generateTestToken(t *testing.T) string {
+	t.Helper()
+	email := envOrDefault("TEST_CUSTOMER_EMAIL", "roni_cost@example.com")
+	password := envOrDefault("TEST_CUSTOMER_PASSWORD", "roni_cost3@example.com")
+
+	tokenResp := doQuery(t, `mutation { generateCustomerToken(email: "`+email+`", password: "`+password+`") { token } }`, "")
+	if len(tokenResp.Errors) > 0 {
+		t.Skipf("cannot generate token (customer may not exist): %s", tokenResp.Errors[0].Message)
+	}
+
+	var tokenData struct {
+		GenerateCustomerToken struct {
+			Token string `json:"token"`
+		} `json:"generateCustomerToken"`
+	}
+	if err := json.Unmarshal(tokenResp.Data, &tokenData); err != nil {
+		t.Fatalf("unmarshal token: %v", err)
+	}
+	if tokenData.GenerateCustomerToken.Token == "" {
+		t.Skip("empty token — skipping order tests")
+	}
+	return tokenData.GenerateCustomerToken.Token
+}
+
+func TestCustomerOrders_Unauthenticated(t *testing.T) {
+	resp := doQuery(t, `{ customer { orders { total_count } } }`, "")
+	if len(resp.Errors) == 0 {
+		t.Fatal("expected auth error for unauthenticated orders query")
+	}
+	t.Logf("got expected error: %s", resp.Errors[0].Message)
+}
+
+func TestCustomerOrders_Authenticated(t *testing.T) {
+	token := generateTestToken(t)
+
+	resp := doQuery(t, `{
+		customer {
+			orders(pageSize: 5) {
+				total_count
+				page_info { current_page page_size total_pages }
+				items {
+					id
+					number
+					order_date
+					status
+					total {
+						grand_total { value currency }
+						subtotal { value currency }
+					}
+					items {
+						product_sku
+						product_name
+						product_sale_price { value currency }
+						quantity_ordered
+					}
+					payment_methods { name type }
+				}
+			}
+		}
+	}`, token)
+
+	if len(resp.Errors) > 0 {
+		t.Fatalf("orders query failed: %s", resp.Errors[0].Message)
+	}
+
+	var data struct {
+		Customer struct {
+			Orders struct {
+				TotalCount int `json:"total_count"`
+				PageInfo   struct {
+					CurrentPage int `json:"current_page"`
+					PageSize    int `json:"page_size"`
+				} `json:"page_info"`
+				Items []struct {
+					ID        string `json:"id"`
+					Number    string `json:"number"`
+					OrderDate string `json:"order_date"`
+					Status    string `json:"status"`
+				} `json:"items"`
+			} `json:"orders"`
+		} `json:"customer"`
+	}
+
+	if err := json.Unmarshal(resp.Data, &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	t.Logf("total_count=%d page_size=%d items_returned=%d",
+		data.Customer.Orders.TotalCount,
+		data.Customer.Orders.PageInfo.PageSize,
+		len(data.Customer.Orders.Items))
+
+	// page_info should reflect the requested page size
+	if data.Customer.Orders.PageInfo.PageSize != 5 {
+		t.Errorf("expected page_size=5, got %d", data.Customer.Orders.PageInfo.PageSize)
+	}
+
+	// if there are orders, validate fields
+	if len(data.Customer.Orders.Items) > 0 {
+		item := data.Customer.Orders.Items[0]
+		if item.ID == "" {
+			t.Error("expected non-empty order id")
+		}
+		if item.Number == "" {
+			t.Error("expected non-empty order number")
+		}
+		if item.OrderDate == "" {
+			t.Error("expected non-empty order_date")
+		}
+		t.Logf("first order: id=%s number=%s status=%s date=%s", item.ID, item.Number, item.Status, item.OrderDate)
+	}
+}
+
+func TestCustomerOrders_Pagination(t *testing.T) {
+	token := generateTestToken(t)
+
+	// Get page 1 with pageSize=1
+	resp1 := doQuery(t, `{ customer { orders(pageSize: 1, currentPage: 1) { total_count items { number } } } }`, token)
+	if len(resp1.Errors) > 0 {
+		t.Fatalf("page 1 query failed: %s", resp1.Errors[0].Message)
+	}
+
+	var data1 struct {
+		Customer struct {
+			Orders struct {
+				TotalCount int `json:"total_count"`
+				Items      []struct {
+					Number string `json:"number"`
+				} `json:"items"`
+			} `json:"orders"`
+		} `json:"customer"`
+	}
+	if err := json.Unmarshal(resp1.Data, &data1); err != nil {
+		t.Fatalf("unmarshal page 1: %v", err)
+	}
+
+	if data1.Customer.Orders.TotalCount < 2 {
+		t.Skipf("customer has fewer than 2 orders (%d) — skipping pagination test", data1.Customer.Orders.TotalCount)
+	}
+
+	// Get page 2 with pageSize=1
+	resp2 := doQuery(t, `{ customer { orders(pageSize: 1, currentPage: 2) { items { number } } } }`, token)
+	if len(resp2.Errors) > 0 {
+		t.Fatalf("page 2 query failed: %s", resp2.Errors[0].Message)
+	}
+
+	var data2 struct {
+		Customer struct {
+			Orders struct {
+				Items []struct {
+					Number string `json:"number"`
+				} `json:"items"`
+			} `json:"orders"`
+		} `json:"customer"`
+	}
+	if err := json.Unmarshal(resp2.Data, &data2); err != nil {
+		t.Fatalf("unmarshal page 2: %v", err)
+	}
+
+	if len(data1.Customer.Orders.Items) == 0 || len(data2.Customer.Orders.Items) == 0 {
+		t.Skip("empty items on one of the pages — skipping")
+	}
+
+	num1 := data1.Customer.Orders.Items[0].Number
+	num2 := data2.Customer.Orders.Items[0].Number
+	if num1 == num2 {
+		t.Errorf("expected different orders on page 1 and page 2, both got %s", num1)
+	}
+	t.Logf("page1=%s page2=%s (distinct ✓)", num1, num2)
+}
+
+func TestCustomerOrders_Filter_ByNumber(t *testing.T) {
+	token := generateTestToken(t)
+
+	// First, get any order number
+	resp := doQuery(t, `{ customer { orders(pageSize: 1) { items { number } } } }`, token)
+	if len(resp.Errors) > 0 {
+		t.Fatalf("initial query failed: %s", resp.Errors[0].Message)
+	}
+
+	var data struct {
+		Customer struct {
+			Orders struct {
+				Items []struct {
+					Number string `json:"number"`
+				} `json:"items"`
+			} `json:"orders"`
+		} `json:"customer"`
+	}
+	if err := json.Unmarshal(resp.Data, &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(data.Customer.Orders.Items) == 0 {
+		t.Skip("no orders found — skipping filter test")
+	}
+
+	orderNumber := data.Customer.Orders.Items[0].Number
+
+	// Filter by that exact order number
+	filterResp := doQuery(t, `{ customer { orders(filter: { number: { eq: "`+orderNumber+`" } }) { total_count items { number } } } }`, token)
+	if len(filterResp.Errors) > 0 {
+		t.Fatalf("filter query failed: %s", filterResp.Errors[0].Message)
+	}
+
+	var filterData struct {
+		Customer struct {
+			Orders struct {
+				TotalCount int `json:"total_count"`
+				Items      []struct {
+					Number string `json:"number"`
+				} `json:"items"`
+			} `json:"orders"`
+		} `json:"customer"`
+	}
+	if err := json.Unmarshal(filterResp.Data, &filterData); err != nil {
+		t.Fatalf("unmarshal filter: %v", err)
+	}
+
+	if filterData.Customer.Orders.TotalCount != 1 {
+		t.Errorf("expected total_count=1 for exact number filter, got %d", filterData.Customer.Orders.TotalCount)
+	}
+	if len(filterData.Customer.Orders.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(filterData.Customer.Orders.Items))
+	}
+	if filterData.Customer.Orders.Items[0].Number != orderNumber {
+		t.Errorf("expected number=%s, got %s", orderNumber, filterData.Customer.Orders.Items[0].Number)
+	}
+	t.Logf("filter by number=%s returned exactly 1 result ✓", orderNumber)
+}
+
+func TestCustomerOrders_Filter_ByStatus(t *testing.T) {
+	token := generateTestToken(t)
+
+	resp := doQuery(t, `{ customer { orders(filter: { status: { eq: "complete" } }, pageSize: 5) { total_count items { number status } } } }`, token)
+	if len(resp.Errors) > 0 {
+		t.Fatalf("status filter query failed: %s", resp.Errors[0].Message)
+	}
+
+	var data struct {
+		Customer struct {
+			Orders struct {
+				TotalCount int `json:"total_count"`
+				Items      []struct {
+					Number string `json:"number"`
+					Status string `json:"status"`
+				} `json:"items"`
+			} `json:"orders"`
+		} `json:"customer"`
+	}
+	if err := json.Unmarshal(resp.Data, &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	t.Logf("found %d complete orders", data.Customer.Orders.TotalCount)
+
+	// All returned orders must have status=complete
+	for _, item := range data.Customer.Orders.Items {
+		if item.Status != "complete" {
+			t.Errorf("expected status=complete for order %s, got %s", item.Number, item.Status)
+		}
+	}
+}

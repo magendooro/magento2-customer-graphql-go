@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -14,11 +17,49 @@ import (
 )
 
 type OrderService struct {
-	orderRepo *repository.OrderRepository
+	orderRepo    *repository.OrderRepository
+	db           *sql.DB
+	storeTZ      *time.Location
+	storeTZOnce  sync.Once
 }
 
-func NewOrderService(orderRepo *repository.OrderRepository) *OrderService {
-	return &OrderService{orderRepo: orderRepo}
+func NewOrderService(orderRepo *repository.OrderRepository, db *sql.DB) *OrderService {
+	return &OrderService{orderRepo: orderRepo, db: db}
+}
+
+// getStoreTimezone loads the Magento store timezone from core_config_data.
+// Magento formats order_date using this timezone (general/locale/timezone).
+func (s *OrderService) getStoreTimezone() *time.Location {
+	s.storeTZOnce.Do(func() {
+		var tz string
+		err := s.db.QueryRow(
+			"SELECT value FROM core_config_data WHERE path = 'general/locale/timezone' AND scope = 'default'",
+		).Scan(&tz)
+		if err == nil && tz != "" {
+			if loc, err := time.LoadLocation(tz); err == nil {
+				s.storeTZ = loc
+				return
+			}
+		}
+		s.storeTZ = time.UTC
+	})
+	return s.storeTZ
+}
+
+// formatOrderDate converts a MySQL timestamp to the Magento store timezone.
+// Magento: $this->timezone->date($createdAt)->format('Y-m-d H:i:s')
+func (s *OrderService) formatOrderDate(mysqlTimestamp string) string {
+	// MySQL parseTime with loc=UTC gives us time in UTC
+	// But our DSN might use local time, so parse the raw string
+	t, err := time.Parse("2006-01-02T15:04:05Z", mysqlTimestamp)
+	if err != nil {
+		t, err = time.Parse("2006-01-02 15:04:05", mysqlTimestamp)
+		if err != nil {
+			return formatDateTime(mysqlTimestamp)
+		}
+	}
+	// Convert to store timezone (matching Magento's TimezoneInterface::date())
+	return t.In(s.getStoreTimezone()).Format("2006-01-02 15:04:05")
 }
 
 func (s *OrderService) GetOrders(
@@ -544,7 +585,7 @@ func (s *OrderService) mapOrder(
 		ID:          id,
 		OrderNumber: d.IncrementID,
 		Number:      d.IncrementID,
-		OrderDate:   formatDateTime(d.CreatedAt),
+		OrderDate:   s.formatOrderDate(d.CreatedAt),
 		Status:      s.orderRepo.GetStatusLabel(d.Status),
 	}
 

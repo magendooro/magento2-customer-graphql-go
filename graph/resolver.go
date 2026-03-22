@@ -29,7 +29,7 @@ func NewResolver(db *sql.DB, jwtManager *jwt.Manager) (*Resolver, error) {
 	customerService := service.NewCustomerService(
 		customerRepo, addressRepo, tokenRepo, newsletterRepo, storeRepo, groupRepo, eavRepo, db,
 	)
-	orderService := service.NewOrderService(orderRepo)
+	orderService := service.NewOrderService(orderRepo, db)
 
 	return &Resolver{
 		CustomerService: customerService,

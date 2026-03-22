@@ -9,7 +9,10 @@ import (
 	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
 )
 
-const dsnParams = "parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci&loc=UTC"
+// loc=UTC tells Go to interpret timestamps as UTC.
+// time_zone tells MySQL to SEND timestamps in UTC (critical for TIMESTAMP columns
+// which MySQL converts from internal UTC to session timezone before sending).
+const dsnParams = "parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci&loc=UTC&time_zone=%27%2B00%3A00%27"
 
 func NewConnection(cfg config.DatabaseConfig) (*sql.DB, error) {
 	var dsn string

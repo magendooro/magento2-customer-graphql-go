@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
@@ -13,29 +12,26 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/magendooro/magento2-customer-graphql-go/graph/model"
+	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/repository"
 )
 
 type OrderService struct {
-	orderRepo    *repository.OrderRepository
-	db           *sql.DB
-	storeTZ      *time.Location
-	storeTZOnce  sync.Once
+	orderRepo   *repository.OrderRepository
+	cp          *config.ConfigProvider
+	storeTZ     *time.Location
+	storeTZOnce sync.Once
 }
 
-func NewOrderService(orderRepo *repository.OrderRepository, db *sql.DB) *OrderService {
-	return &OrderService{orderRepo: orderRepo, db: db}
+func NewOrderService(orderRepo *repository.OrderRepository, cp *config.ConfigProvider) *OrderService {
+	return &OrderService{orderRepo: orderRepo, cp: cp}
 }
 
-// getStoreTimezone loads the Magento store timezone from core_config_data.
-// Magento formats order_date using this timezone (general/locale/timezone).
+// getStoreTimezone loads the Magento store timezone from ConfigProvider.
 func (s *OrderService) getStoreTimezone() *time.Location {
 	s.storeTZOnce.Do(func() {
-		var tz string
-		err := s.db.QueryRow(
-			"SELECT value FROM core_config_data WHERE path = 'general/locale/timezone' AND scope = 'default'",
-		).Scan(&tz)
-		if err == nil && tz != "" {
+		tz := s.cp.GetDefault("general/locale/timezone")
+		if tz != "" {
 			if loc, err := time.LoadLocation(tz); err == nil {
 				s.storeTZ = loc
 				return

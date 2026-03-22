@@ -156,6 +156,29 @@ func (r *CustomerRepository) Create(ctx context.Context, c *CustomerData) (int, 
 	return int(id), nil
 }
 
+// IncrementLoginFailure atomically increments the failure counter.
+func (r *CustomerRepository) IncrementLoginFailure(ctx context.Context, customerID int) {
+	r.db.ExecContext(ctx,
+		"UPDATE customer_entity SET failures_num = COALESCE(failures_num, 0) + 1, first_failure = COALESCE(first_failure, NOW()) WHERE entity_id = ?",
+		customerID,
+	)
+}
+
+// GetLoginFailures returns the current failure count for a customer.
+func (r *CustomerRepository) GetLoginFailures(ctx context.Context, customerID int) int {
+	var count int
+	r.db.QueryRowContext(ctx, "SELECT COALESCE(failures_num, 0) FROM customer_entity WHERE entity_id = ?", customerID).Scan(&count)
+	return count
+}
+
+// ResetLoginFailures clears the failure counter on successful login.
+func (r *CustomerRepository) ResetLoginFailures(ctx context.Context, customerID int) {
+	r.db.ExecContext(ctx,
+		"UPDATE customer_entity SET failures_num = 0, first_failure = NULL, lock_expires = NULL WHERE entity_id = ?",
+		customerID,
+	)
+}
+
 // Update modifies an existing customer_entity record. Only non-nil fields are updated.
 func (r *CustomerRepository) Update(ctx context.Context, id int, fields map[string]interface{}) error {
 	if len(fields) == 0 {

@@ -12,6 +12,8 @@ import (
 
 func getTestToken(t *testing.T) string {
 	t.Helper()
+	// Clear any stale JWT revocation before generating a new token
+	cleanupRevocation(t)
 	email := envOrDefault("TEST_CUSTOMER_EMAIL", "roni_cost@example.com")
 	password := envOrDefault("TEST_CUSTOMER_PASSWORD", "roni_cost3@example.com")
 

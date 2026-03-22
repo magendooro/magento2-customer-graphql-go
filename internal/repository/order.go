@@ -332,9 +332,10 @@ func (r *OrderRepository) GetItems(ctx context.Context, orderIDs []int) (map[int
 
 	rows, err := r.db.QueryContext(ctx,
 		fmt.Sprintf(`
-			SELECT item_id, order_id, product_type, sku, name, price,
-			       qty_ordered, qty_shipped, qty_invoiced, qty_refunded, qty_canceled,
-			       row_total, tax_amount, discount_amount, status
+			SELECT item_id, order_id, product_type, sku, name, COALESCE(price, 0),
+			       COALESCE(qty_ordered, 0), COALESCE(qty_shipped, 0), COALESCE(qty_invoiced, 0),
+			       COALESCE(qty_refunded, 0), COALESCE(qty_canceled, 0),
+			       COALESCE(row_total, 0), COALESCE(tax_amount, 0), COALESCE(discount_amount, 0)
 			FROM sales_order_item
 			WHERE order_id IN (%s)
 		`, placeholders),
@@ -351,7 +352,7 @@ func (r *OrderRepository) GetItems(ctx context.Context, orderIDs []int) (map[int
 		err := rows.Scan(
 			&item.ItemID, &item.OrderID, &item.ProductType, &item.Sku, &item.Name, &item.Price,
 			&item.QtyOrdered, &item.QtyShipped, &item.QtyInvoiced, &item.QtyRefunded, &item.QtyCanceled,
-			&item.RowTotal, &item.TaxAmount, &item.DiscountAmount, &item.Status,
+			&item.RowTotal, &item.TaxAmount, &item.DiscountAmount,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan order item row failed: %w", err)
@@ -510,8 +511,9 @@ func (r *OrderRepository) GetInvoiceItems(ctx context.Context, invoiceIDs []int)
 
 	rows, err := r.db.QueryContext(ctx,
 		fmt.Sprintf(`
-			SELECT entity_id, parent_id, order_item_id, sku, name, price, qty,
-			       row_total, tax_amount, discount_amount
+			SELECT entity_id, parent_id, order_item_id, sku, name,
+			       COALESCE(price, 0), qty,
+			       COALESCE(row_total, 0), COALESCE(tax_amount, 0), COALESCE(discount_amount, 0)
 			FROM sales_invoice_item
 			WHERE parent_id IN (%s)
 		`, placeholders),
@@ -724,8 +726,9 @@ func (r *OrderRepository) GetCreditMemoItems(ctx context.Context, memoIDs []int)
 
 	rows, err := r.db.QueryContext(ctx,
 		fmt.Sprintf(`
-			SELECT entity_id, parent_id, order_item_id, sku, name, price, qty,
-			       row_total, tax_amount, discount_amount
+			SELECT entity_id, parent_id, order_item_id, sku, name,
+			       COALESCE(price, 0), qty,
+			       COALESCE(row_total, 0), COALESCE(tax_amount, 0), COALESCE(discount_amount, 0)
 			FROM sales_creditmemo_item
 			WHERE parent_id IN (%s)
 		`, placeholders),

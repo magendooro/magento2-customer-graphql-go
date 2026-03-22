@@ -284,6 +284,9 @@ func TestGenerateToken_AndCustomerQuery(t *testing.T) {
 }
 
 func TestUpdateCustomer(t *testing.T) {
+	if testDB != nil {
+		testDB.Exec("DELETE FROM jwt_auth_revoked WHERE user_type_id = 3 AND user_id = 1")
+	}
 	email := envOrDefault("TEST_CUSTOMER_EMAIL", "roni_cost@example.com")
 	password := envOrDefault("TEST_CUSTOMER_PASSWORD", "roni_cost3@example.com")
 
@@ -334,6 +337,10 @@ func TestStoreMiddleware(t *testing.T) {
 // Returns empty string and calls t.Skip if the customer doesn't exist.
 func generateTestToken(t *testing.T) string {
 	t.Helper()
+	// Clear any stale JWT revocation before generating a new token
+	if testDB != nil {
+		testDB.Exec("DELETE FROM jwt_auth_revoked WHERE user_type_id = 3 AND user_id = 1")
+	}
 	email := envOrDefault("TEST_CUSTOMER_EMAIL", "roni_cost@example.com")
 	password := envOrDefault("TEST_CUSTOMER_PASSWORD", "roni_cost3@example.com")
 

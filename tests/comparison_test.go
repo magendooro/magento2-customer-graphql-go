@@ -47,7 +47,7 @@ func TestCompare_UnauthenticatedCustomerQuery(t *testing.T) {
 	}
 	msg := resp.Errors[0].Message
 	// Magento uses "The current customer isn't authorized." (with period)
-	expected := "the current customer isn't authorized"
+	expected := "The current customer isn't authorized."
 	if msg != expected {
 		t.Errorf("error message mismatch:\n  Go:      %q\n  Magento: %q", msg, expected)
 	}
@@ -60,7 +60,7 @@ func TestCompare_InvalidCredentials(t *testing.T) {
 		t.Fatal("expected error for wrong password")
 	}
 	msg := resp.Errors[0].Message
-	expected := "the account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later"
+	expected := "The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later."
 	if msg != expected {
 		t.Errorf("error message mismatch:\n  Go:      %q\n  Magento: %q", msg, expected)
 	}
@@ -74,7 +74,7 @@ func TestCompare_NonExistentEmailLogin(t *testing.T) {
 	}
 	// Should NOT reveal that the email doesn't exist — same generic message
 	msg := resp.Errors[0].Message
-	expected := "the account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later"
+	expected := "The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later."
 	if msg != expected {
 		t.Errorf("error message should not reveal email existence:\n  Go:      %q\n  Magento: %q", msg, expected)
 	}
@@ -87,7 +87,7 @@ func TestCompare_RevokeTokenUnauthenticated(t *testing.T) {
 		t.Fatal("expected auth error for unauthenticated revoke")
 	}
 	msg := resp.Errors[0].Message
-	expected := "the current customer isn't authorized"
+	expected := "The current customer isn't authorized."
 	if msg != expected {
 		t.Errorf("error message mismatch:\n  Go:      %q\n  Magento: %q", msg, expected)
 	}
@@ -96,7 +96,8 @@ func TestCompare_RevokeTokenUnauthenticated(t *testing.T) {
 // ─── isEmailAvailable Comparison ────────────────────────────────────────────
 
 func TestCompare_IsEmailAvailable_ExistingCustomer(t *testing.T) {
-	// Magento: returns false for existing email
+	// Magento 2.4.6+: always returns true when email_availability_check config is disabled (default).
+	// This prevents email enumeration attacks.
 	resp := doQuery(t, `{ isEmailAvailable(email: "roni_cost@example.com") { is_email_available } }`, "")
 	if len(resp.Errors) > 0 {
 		t.Fatalf("unexpected error: %s", resp.Errors[0].Message)
@@ -107,8 +108,8 @@ func TestCompare_IsEmailAvailable_ExistingCustomer(t *testing.T) {
 		} `json:"isEmailAvailable"`
 	}
 	json.Unmarshal(resp.Data, &data)
-	if data.IsEmailAvailable.IsEmailAvailable != false {
-		t.Error("Magento returns false for existing email; Go returned true")
+	if data.IsEmailAvailable.IsEmailAvailable != true {
+		t.Error("Magento 2.4.6+ returns true for all emails when email_availability_check is disabled (default)")
 	}
 }
 
@@ -503,7 +504,7 @@ func TestCompare_ChangePasswordWrongCurrent(t *testing.T) {
 		t.Fatal("expected error for wrong current password")
 	}
 	msg := resp.Errors[0].Message
-	expected := "the password doesn't match this account. Verify the password and try again"
+	expected := "The password doesn't match this account. Verify the password and try again."
 	if msg != expected {
 		t.Errorf("error message mismatch:\n  Go:      %q\n  Magento: %q", msg, expected)
 	}

@@ -183,12 +183,41 @@ type OrderSort struct {
 
 // OrderRepository provides data access for Magento sales tables.
 type OrderRepository struct {
-	db *sql.DB
+	db           *sql.DB
+	statusLabels map[string]string
+	statusLoaded bool
 }
 
 // NewOrderRepository creates a new OrderRepository.
 func NewOrderRepository(db *sql.DB) *OrderRepository {
-	return &OrderRepository{db: db}
+	return &OrderRepository{db: db, statusLabels: make(map[string]string)}
+}
+
+// GetStatusLabel resolves a raw status code to its display label from sales_order_status.
+func (r *OrderRepository) GetStatusLabel(status string) string {
+	if !r.statusLoaded {
+		r.loadStatusLabels()
+	}
+	if label, ok := r.statusLabels[status]; ok {
+		return label
+	}
+	return status
+}
+
+func (r *OrderRepository) loadStatusLabels() {
+	rows, err := r.db.Query("SELECT status, label FROM sales_order_status")
+	if err != nil {
+		r.statusLoaded = true
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status, label string
+		if rows.Scan(&status, &label) == nil {
+			r.statusLabels[status] = label
+		}
+	}
+	r.statusLoaded = true
 }
 
 // FindByCustomerID finds orders for a customer with filtering, sorting, and pagination.
@@ -258,7 +287,7 @@ func (r *OrderRepository) FindByCustomerID(ctx context.Context, customerID int, 
 
 	// Determine sort field and direction (whitelist to prevent SQL injection)
 	sortField := "created_at"
-	sortDirection := "DESC"
+	sortDirection := "ASC"
 	if sort != nil {
 		switch strings.ToUpper(sort.Direction) {
 		case "ASC":

@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/99designs/gqlgen/graphql"
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/playground"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -80,6 +83,9 @@ func (a *App) Run() error {
 		Resolvers: resolver,
 	}))
 
+	// Custom error presenter to add Magento-compatible extensions.category
+	srv.SetErrorPresenter(magentoErrorPresenter)
+
 	if a.cfg.GraphQL.ComplexityLimit > 0 {
 		srv.Use(extension.FixedComplexityLimit(a.cfg.GraphQL.ComplexityLimit))
 	}
@@ -139,4 +145,20 @@ func (a *App) Run() error {
 	}
 	log.Info().Msg("server stopped")
 	return nil
+}
+
+// magentoErrorPresenter adds Magento-compatible extensions.category to GraphQL errors.
+func magentoErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
+	gqlErr := graphql.DefaultErrorPresenter(ctx, err)
+
+	msg := gqlErr.Message
+	switch {
+	case strings.Contains(msg, "isn't authorized"):
+		gqlErr.Extensions = map[string]interface{}{"category": "graphql-authorization"}
+	case strings.Contains(msg, "account sign-in was incorrect"),
+		strings.Contains(msg, "token has been revoked"):
+		gqlErr.Extensions = map[string]interface{}{"category": "graphql-authentication"}
+	}
+
+	return gqlErr
 }

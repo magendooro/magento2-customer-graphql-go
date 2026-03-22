@@ -207,7 +207,7 @@ func (s *OrderService) GetOrders(
 	// Map orders
 	var result []*model.CustomerOrder
 	for _, o := range orders {
-		mapped := mapOrder(
+		mapped := s.mapOrder(
 			o,
 			itemsMap[o.EntityID],
 			addressesMap[o.EntityID],
@@ -523,7 +523,7 @@ func mapCreditMemo(d *repository.CreditMemoData, items []*repository.CreditMemoI
 }
 
 // mapOrder converts repository order data and all sub-resources to GraphQL model
-func mapOrder(
+func (s *OrderService) mapOrder(
 	d *repository.OrderData,
 	items []*repository.OrderItemData,
 	addresses []*repository.OrderAddressData,
@@ -544,8 +544,8 @@ func mapOrder(
 		ID:          id,
 		OrderNumber: d.IncrementID,
 		Number:      d.IncrementID,
-		OrderDate:   d.CreatedAt,
-		Status:      d.Status,
+		OrderDate:   formatDateTime(d.CreatedAt),
+		Status:      s.orderRepo.GetStatusLabel(d.Status),
 	}
 
 	if d.ShippingMethod.Valid {

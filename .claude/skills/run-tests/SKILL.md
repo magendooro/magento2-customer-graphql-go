@@ -9,52 +9,57 @@ Run the project test suites. If a test pattern is provided, run only matching te
 
 ## Environment
 
-Tests require these env vars (with defaults):
-- `TEST_DB_HOST` (localhost)
+Tests require a MySQL connection to a Magento database. Default env vars:
+- `TEST_DB_HOST` (localhost — uses Unix socket)
 - `TEST_DB_PORT` (3306)
-- `TEST_DB_USER` (root)
+- `TEST_DB_USER` (fch)
 - `TEST_DB_PASSWORD` ("")
-- `TEST_DB_NAME` (magento)
-- `GO_GRAPHQL_URL` (http://localhost:8082/graphql) — for comparison tests
-- `MAGE_GRAPHQL_URL` (http://localhost:8080/graphql) — for comparison tests
+- `TEST_DB_NAME` (magento248)
+- `TEST_DB_SOCKET` (/tmp/mysql.sock)
+- `MAGENTO_CRYPT_KEY` (defaults to local Magento's key for JWT tests)
 
 ## Steps
 
 ### 1. Build check
 
 ```bash
-go build ./...
-go vet ./...
+GOTOOLCHAIN=auto go build ./...
+GOTOOLCHAIN=auto go vet ./...
 ```
 
-### 2. Integration tests
+### 2. Run tests
 
 If `$ARGUMENTS` is provided, use it as the test pattern:
 
 ```bash
-go test ./tests/ -run '$ARGUMENTS' -v -timeout 60s -count=1
+GOTOOLCHAIN=auto go test ./tests/ -run '$ARGUMENTS' -v -timeout 120s -count=1
 ```
 
-If no argument, run all integration tests:
+If no argument, run ALL tests (72 total across 5 packages):
 
 ```bash
-go test ./tests/ -v -timeout 60s -count=1
+GOTOOLCHAIN=auto go test ./... -v -timeout 120s -count=1
 ```
 
-### 3. Comparison tests (only if Go service is running)
+### 3. Test categories
 
-Check if the Go service is running at `GO_GRAPHQL_URL`:
+- **Unit tests** (23): JWT, password hashing, date formatting, UID decoding, helpers
+- **Integration tests** (13): health, isEmailAvailable, auth, token lifecycle, CRUD, store, orders
+- **Comparison tests** (31): field-by-field validation against Magento ground truth
+- **Order tests** (5): authenticated, pagination, filter by number, filter by status
+
+### 4. Live comparison (optional)
+
+For a side-by-side comparison against Magento PHP, both services must be running:
 
 ```bash
-curl -sf http://localhost:8082/health > /dev/null 2>&1
+# Start Go service
+MAGENTO_CRYPT_KEY=<key> DB_USER=fch DB_NAME=magento248 GOTOOLCHAIN=auto go run ./cmd/server/ &
+
+# Run comparison — same query to both :8080 (Magento) and :8082 (Go)
+GOTOOLCHAIN=auto go test ./tests/ -run TestCompare -v -timeout 300s -count=1
 ```
 
-If healthy, run comparison tests:
-
-```bash
-go test ./tests/ -run TestCompare -v -timeout 300s -count=1
-```
-
-### 4. Report results
+### 5. Report results
 
 Summarize pass/fail counts. For failures, show the test name and error message.

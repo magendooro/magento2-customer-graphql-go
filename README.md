@@ -1,6 +1,6 @@
 # magento2-customer-graphql-go
 
-High-performance Go drop-in replacement for Magento 2's customer-related GraphQL queries and mutations. Reads from and writes to Magento's MySQL database, delivering identical results with significantly faster response times.
+High-performance Go drop-in replacement for Magento 2's customer-related GraphQL queries and mutations. Connects to the same MySQL database as Magento, producing **identical responses** to Magento PHP at significantly faster speeds.
 
 ## Quick Start
 
@@ -9,56 +9,84 @@ git clone https://github.com/magendooro/magento2-customer-graphql-go.git
 cd magento2-customer-graphql-go
 GOTOOLCHAIN=auto go build -o server ./cmd/server/
 
-DB_HOST=localhost DB_NAME=magento ./server
+MAGENTO_CRYPT_KEY="your-magento-crypt-key" DB_USER=magento DB_NAME=magento ./server
 ```
+
+The crypt key is in Magento's `app/etc/env.php` under `crypt → key`.
 
 Endpoints: GraphQL at `/graphql`, Playground at `/`, Health at `/health`.
 
-Default port: **8082** (to avoid conflict with Magento on 8080).
+Default port: **8082** (avoids conflict with Magento on 8080).
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DB_HOST` | `localhost` | MySQL host |
-| `DB_PORT` | `3306` | MySQL port |
+| `MAGENTO_CRYPT_KEY` | — | **Required.** Magento's `crypt/key` from `app/etc/env.php` |
+| `DB_HOST` | `localhost` | MySQL host (`localhost` uses Unix socket) |
+| `DB_PORT` | `3306` | MySQL port (TCP connections only) |
 | `DB_USER` | `root` | MySQL user |
 | `DB_PASSWORD` | `""` | MySQL password |
 | `DB_NAME` | `magento` | Magento database name |
-| `REDIS_HOST` | `127.0.0.1` | Redis host (empty to disable) |
+| `DB_SOCKET` | `/tmp/mysql.sock` | MySQL socket path (when host=localhost) |
 | `SERVER_PORT` | `8082` | HTTP listen port |
-| `MAGENTO_CRYPT_KEY` | `""` | Magento's `crypt/key` from env.php (required for JWT) |
+| `REDIS_HOST` | `127.0.0.1` | Redis host (empty to disable caching) |
 | `JWT_TTL_MINUTES` | `60` | JWT token lifetime in minutes |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 
 ## Features
 
-### Queries
-- **`customer`** — Returns the authenticated customer's profile, addresses, newsletter status
-- **`isEmailAvailable`** — Checks if an email is available for registration
+### Queries (3)
+- **`customer`** — Full customer profile: personal info, addresses, newsletter status, customer group, order history, custom EAV attributes
+- **`isEmailAvailable`** — Email availability check (respects Magento's anti-enumeration config)
+- **`customerGroup`** — Current customer's group
 
-### Mutations
-- **`generateCustomerToken`** — Authenticate and receive a Bearer token
-- **`revokeCustomerToken`** — Revoke the current token
-- **`createCustomerV2`** — Register a new customer account
-- **`updateCustomerV2`** — Update customer profile
-- **`changeCustomerPassword`** — Change password (requires current password)
-- **`updateCustomerEmail`** — Change email (requires password verification)
-- **`createCustomerAddress`** — Add a new address
-- **`updateCustomerAddress`** — Update an existing address
-- **`deleteCustomerAddress`** — Delete an address
+### Mutations (18)
+| Mutation | Description |
+|----------|-------------|
+| `generateCustomerToken` | Authenticate → Magento-compatible HS256 JWT |
+| `revokeCustomerToken` | Revoke via `jwt_auth_revoked` table |
+| `createCustomerV2` / `updateCustomerV2` | Customer CRUD with password validation |
+| `changeCustomerPassword` | Verifies current password, enforces strength rules |
+| `updateCustomerEmail` | Changes email with password verification + uniqueness check |
+| `deleteCustomer` | Deletes account and revokes all tokens |
+| `createCustomerAddress` / `updateCustomerAddress` / `deleteCustomerAddress` | Address CRUD (by ID) |
+| `updateCustomerAddressV2` / `deleteCustomerAddressV2` | Address CRUD (by base64 UID) |
+| `requestPasswordResetEmail` / `resetPassword` | Password reset flow |
+| `confirmEmail` / `resendConfirmationEmail` | Email confirmation flow |
+| `createCustomer` / `updateCustomer` | Deprecated V1 aliases |
+
+### Customer.orders
+Full order history with filtering, sorting, and pagination:
+- **Types**: CustomerOrder, OrderTotal, OrderAddress, OrderPaymentMethod, OrderItem, Invoice, Shipment, CreditMemo, tracking, comments
+- **Filters**: number (eq/match/in), status (eq/in), date range, grand total range
+- **Sorting**: order_date, number, grand_total (ASC/DESC)
+- **Status labels** resolved from `sales_order_status` table
+- **Dates** converted to store timezone (from `general/locale/timezone` config)
+
+### Customer.custom_attributes
+EAV custom attribute support via `AttributeValueInterface`:
+- `AttributeValue` for simple text/int/decimal/datetime attributes
+- `AttributeSelectedOptions` for select/multiselect with option labels
+- Filterable by `attributeCodes` argument
+- Standard installations return empty arrays (all built-in attributes are flat)
 
 ### Infrastructure
-- **Magento-compatible JWT authentication** (HS256 signed with Magento's `crypt/key`)
+- **Magento-compatible JWT authentication** — HS256 signed with Magento's `crypt/key`, cross-compatible with Magento PHP tokens
+- **Account lockout** — brute-force protection matching Magento's `failures_num`/`lock_expires` logic
+- **Password strength validation** — minimum length + character class requirements from `core_config_data`
+- **Argon2id password hashing** — matches Magento 2.4+ default (also supports SHA256 and bcrypt)
 - **Store-scoped multi-tenancy** via `Store` HTTP header
-- **Redis response caching** (optional, skips authenticated requests)
-- **Magento-compatible password verification** (Argon2id, SHA256, bcrypt)
+- **Redis response caching** — optional, skips authenticated requests and mutations
+- **GraphQL error extensions** — `extensions.category` for authorization/authentication errors
 
 ## Magento Compatibility
 
 - **Magento 2.4+ Enterprise Edition**
-- **Same database** as Magento — reads and writes to the same MySQL instance
-- Customer entity uses `entity_id` (not `row_id`)
+- **Same database** — reads from and writes to Magento's MySQL instance
+- **JWT cross-compatible** — tokens generated by Go work with Magento PHP and vice versa
+- **72 tests** including field-by-field comparison against Magento PHP
+- **11 of 11 comparison queries produce identical JSON responses**
 
 ## Usage
 
@@ -68,11 +96,27 @@ curl -s -H 'Content-Type: application/json' \
   -d '{"query":"mutation { generateCustomerToken(email: \"user@example.com\", password: \"password123\") { token } }"}' \
   http://localhost:8082/graphql
 
-# Query customer data (with token)
+# Query customer with order history
 curl -s -H 'Content-Type: application/json' \
   -H 'Authorization: Bearer YOUR_TOKEN' \
-  -d '{"query":"{ customer { id firstname lastname email addresses { city country_code } } }"}' \
+  -d '{"query":"{ customer { firstname lastname email orders(pageSize: 5) { total_count items { number status order_date total { grand_total { value currency } } } } } }"}' \
   http://localhost:8082/graphql
+```
+
+## Docker
+
+```bash
+docker build -t magento2-customer-graphql .
+docker run -p 8082:8082 \
+  -e DB_HOST=host.docker.internal \
+  -e DB_NAME=magento \
+  -e MAGENTO_CRYPT_KEY=your-key \
+  magento2-customer-graphql
+```
+
+Or with Docker Compose:
+```bash
+MAGENTO_CRYPT_KEY=your-key DB_HOST=host.docker.internal DB_NAME=magento docker compose up
 ```
 
 ## License

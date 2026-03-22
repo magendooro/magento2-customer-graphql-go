@@ -17,30 +17,33 @@ Add the field to `Customer` type in `graph/schema.graphqls`. Use the appropriate
 ## 2. Regenerate
 
 ```bash
-go run github.com/99designs/gqlgen generate
+GOTOOLCHAIN=auto go run github.com/99designs/gqlgen generate
 ```
 
 ## 3. Repository
 
 In `internal/repository/customer.go`:
 - Add the field to the `CustomerData` struct
-- Add the column or EAV JOIN in `GetCustomerByID()`
-- For flat columns: just add to SELECT
+- Add the column or EAV JOIN in `GetByID()` and `GetByEmail()`
+- For flat columns: just add to SELECT and Scan
 - For EAV attributes: JOIN `customer_entity_<backend_type>` using `entity_id` with `COALESCE(store_value, default_value)` for store scoping
+
+Note: Standard Magento customer attributes are all `static` (flat table). Only user-defined custom attributes use EAV value tables. For custom EAV attributes, the `custom_attributes` field already handles them automatically via `EAVAttributeRepository`.
 
 ## 4. Service mapping
 
-In `internal/service/customer.go`, in the mapping function, map the new field from `CustomerData` to the generated model type.
+In `internal/service/customer.go`, in `mapCustomer()`, map the new field from `CustomerData` to the generated model type.
 
 ## 5. Verify
 
 ```bash
-go build ./...
-go vet ./...
+GOTOOLCHAIN=auto go build ./...
+GOTOOLCHAIN=auto go vet ./...
+GOTOOLCHAIN=auto go test ./... -count=1 -timeout 120s
 ```
 
 ## Important
 
 - Customer entity uses `entity_id` (NOT `row_id` — that's catalog only)
 - The attribute must exist in Magento's `eav_attribute` table with `entity_type_code = 'customer'`
-- Most standard customer fields are flat columns on `customer_entity`, not EAV
+- Keep SQL column count and Scan parameter count in sync in BOTH `GetByID()` and `GetByEmail()`

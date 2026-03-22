@@ -374,30 +374,7 @@ func mapOrderAddress(d *repository.OrderAddressData) *model.OrderAddress {
 }
 
 // mapOrderItem converts repository order item to GraphQL model
-func mapOrderItem(d *repository.OrderItemData) model.OrderItemInterface {
-	id := strconv.Itoa(d.ItemID)
-	price := mapMoney(d.Price, "USD")
-	item := model.OrderItem{
-		ID:               id,
-		ProductSku:       d.Sku,
-		ProductSalePrice: price,
-		QuantityOrdered:  &d.QtyOrdered,
-		QuantityShipped:  &d.QtyShipped,
-		QuantityInvoiced: &d.QtyInvoiced,
-		QuantityRefunded: &d.QtyRefunded,
-		QuantityCanceled: &d.QtyCanceled,
-	}
-	if d.Name.Valid {
-		item.ProductName = &d.Name.String
-	}
-	if d.ProductType.Valid {
-		item.ProductType = &d.ProductType.String
-	}
-	if d.Status.Valid {
-		item.Status = &d.Status.String
-	}
-	return item
-}
+
 
 // mapOrderItemWithCurrency converts repository order item to GraphQL model with currency from order
 func mapOrderItemWithCurrency(d *repository.OrderItemData, currencyCode string) model.OrderItemInterface {

@@ -9,21 +9,21 @@ import (
 	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
 )
 
+const dsnParams = "parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci&loc=UTC"
+
 func NewConnection(cfg config.DatabaseConfig) (*sql.DB, error) {
 	var dsn string
 	if cfg.Host == "localhost" && cfg.Socket != "" {
-		// Unix socket connection (matches Magento's "localhost" behavior)
-		dsn = fmt.Sprintf("%s:%s@unix(%s)/%s?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
-			cfg.User, cfg.Password, cfg.Socket, cfg.Name,
+		dsn = fmt.Sprintf("%s:%s@unix(%s)/%s?%s",
+			cfg.User, cfg.Password, cfg.Socket, cfg.Name, dsnParams,
 		)
 	} else if cfg.Host == "localhost" {
-		// Try default MySQL socket path
-		dsn = fmt.Sprintf("%s:%s@unix(/tmp/mysql.sock)/%s?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci",
-			cfg.User, cfg.Password, cfg.Name,
+		dsn = fmt.Sprintf("%s:%s@unix(/tmp/mysql.sock)/%s?%s",
+			cfg.User, cfg.Password, cfg.Name, dsnParams,
 		)
 	} else {
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&charset=utf8mb4&collation=utf8mb4_unicode_ci&time_zone=%%27%%2B00%%3A00%%27",
-			cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name,
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?%s",
+			cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Name, dsnParams,
 		)
 	}
 

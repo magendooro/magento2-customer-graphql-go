@@ -48,23 +48,3 @@ func (r *TokenRepository) RevokeAllForCustomer(ctx context.Context, customerID i
 	return nil
 }
 
-// GetCustomerIDByToken validates a token and returns the customer ID.
-// Tries JWT first, then falls back to oauth_token.
-func (r *TokenRepository) GetCustomerIDByToken(ctx context.Context, token string) (int, error) {
-	if r.jwtManager != nil {
-		if id, err := r.jwtManager.Validate(token); err == nil {
-			return id, nil
-		}
-	}
-
-	// Fallback: oauth_token
-	var customerID int
-	err := r.db.QueryRowContext(ctx,
-		"SELECT customer_id FROM oauth_token WHERE token = ? AND revoked = 0 AND customer_id IS NOT NULL",
-		token,
-	).Scan(&customerID)
-	if err != nil {
-		return 0, err
-	}
-	return customerID, nil
-}

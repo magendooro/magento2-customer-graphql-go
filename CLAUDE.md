@@ -12,7 +12,7 @@ High-performance Go drop-in replacement for Magento 2's customer-related GraphQL
 - **Never edit** `graph/generated.go` or `graph/model/models_gen.go` — they are auto-generated
 - **Magento Enterprise Edition** — customer entity uses `entity_id` (NOT `row_id` — that's catalog only)
 - **Read AND write** — this service handles both queries and mutations (unlike the catalog service which is read-only)
-- **Authentication** — Bearer token via `oauth_token` table, resolved in auth middleware
+- **Authentication** — Magento-compatible HS256 JWT tokens (primary), with `oauth_token` table fallback. Requires `MAGENTO_CRYPT_KEY` env var.
 
 ## Project Structure
 
@@ -59,7 +59,7 @@ Test env vars: `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER`, `TEST_DB_PASSWORD
 - **Context**: always first parameter `ctx context.Context`
 - **Authentication**: middleware injects customer_id into context; use `middleware.GetCustomerID(ctx)` — returns 0 if unauthenticated
 - **Store scoping**: middleware injects store_id into context; use `middleware.GetStoreID(ctx)`
-- **Password hashing**: Magento format `hash:salt:version` — version 1=SHA256, 2=bcrypt
+- **Password hashing**: Magento format `hash:salt:version` — version 1=SHA256, 2=bcrypt, 3=Argon2id (Magento 2.4+ default)
 
 ## Magento Database Tables
 

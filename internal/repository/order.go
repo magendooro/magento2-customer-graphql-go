@@ -256,12 +256,15 @@ func (r *OrderRepository) FindByCustomerID(ctx context.Context, customerID int, 
 		return nil, 0, fmt.Errorf("count orders failed: %w", err)
 	}
 
-	// Determine sort field and direction
+	// Determine sort field and direction (whitelist to prevent SQL injection)
 	sortField := "created_at"
 	sortDirection := "DESC"
 	if sort != nil {
-		if sort.Direction != "" {
-			sortDirection = sort.Direction
+		switch strings.ToUpper(sort.Direction) {
+		case "ASC":
+			sortDirection = "ASC"
+		case "DESC":
+			sortDirection = "DESC"
 		}
 		switch sort.Field {
 		case "number":

@@ -442,6 +442,17 @@ func (s *CustomerService) UpdateEmail(ctx context.Context, email, password strin
 		return nil, fmt.Errorf("the password doesn't match this account. Verify the password and try again")
 	}
 
+	// Check email uniqueness within the same website
+	storeID := middleware.GetStoreID(ctx)
+	websiteID, _ := s.storeRepo.GetWebsiteIDForStore(ctx, storeID)
+	exists, err := s.customerRepo.EmailExists(ctx, email, websiteID)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, fmt.Errorf("a customer with the same email address already exists in an associated website")
+	}
+
 	if err := s.customerRepo.Update(ctx, customerID, map[string]interface{}{
 		"email": email,
 	}); err != nil {
@@ -596,7 +607,7 @@ func (s *CustomerService) RequestPasswordResetEmail(ctx context.Context, email s
 		return false, fmt.Errorf("failed to store reset token: %w", err)
 	}
 
-	log.Info().Str("email", email).Str("rp_token", rpToken).Msg("password reset token generated (email sending not implemented)")
+	log.Info().Str("email", email).Msg("password reset token generated (email sending not implemented)")
 	return true, nil
 }
 
@@ -768,7 +779,7 @@ func (s *CustomerService) GetCustomAttributes(ctx context.Context, entityType st
 
 		// For select/multiselect, resolve option labels
 		if v.FrontendInput == "select" || v.FrontendInput == "multiselect" {
-			options, err := s.resolveSelectOptions(ctx, v, storeID)
+			options, err := s.resolveSelectOptions(ctx, entityType, v, storeID)
 			if err == nil && len(options) > 0 {
 				result = append(result, &model.AttributeSelectedOptions{
 					Code:            v.AttributeCode,
@@ -788,10 +799,16 @@ func (s *CustomerService) GetCustomAttributes(ctx context.Context, entityType st
 	return result, nil
 }
 
-func (s *CustomerService) resolveSelectOptions(ctx context.Context, v *repository.EAVAttributeValue, storeID int) ([]*model.AttributeSelectedOption, error) {
+func (s *CustomerService) resolveSelectOptions(ctx context.Context, entityType string, v *repository.EAVAttributeValue, storeID int) ([]*model.AttributeSelectedOption, error) {
 	// For select attributes, value is a single option_id
 	// For multiselect, value is comma-separated option_ids
-	attrs, err := s.eavRepo.GetCustomerAttributes(ctx)
+	var attrs []*repository.EAVAttributeMeta
+	var err error
+	if entityType == "customer_address" {
+		attrs, err = s.eavRepo.GetAddressAttributes(ctx)
+	} else {
+		attrs, err = s.eavRepo.GetCustomerAttributes(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -849,10 +866,11 @@ func (s *CustomerService) mapCustomer(data *repository.CustomerData) *model.Cust
 		defaultShipping = &v
 	}
 
+	// Magento: confirmation=NULL → ACCOUNT_CONFIRMATION_NOT_REQUIRED (default for most accounts).
+	// confirmation=non-null with value → account needs confirmation (pending).
+	// Magento GraphQL only has two enum values; it uses ACCOUNT_CONFIRMATION_NOT_REQUIRED
+	// for both "confirmed" and "doesn't need confirmation" when the field is NULL.
 	confirmStatus := model.ConfirmationStatusEnumAccountConfirmationNotRequired
-	if data.Confirmation != nil && *data.Confirmation != "" {
-		confirmStatus = model.ConfirmationStatusEnumAccountConfirmed
-	}
 
 	var dob *string
 	if data.Dob != nil && *data.Dob != "" {

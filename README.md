@@ -27,6 +27,8 @@ Default port: **8082** (to avoid conflict with Magento on 8080).
 | `DB_NAME` | `magento` | Magento database name |
 | `REDIS_HOST` | `127.0.0.1` | Redis host (empty to disable) |
 | `SERVER_PORT` | `8082` | HTTP listen port |
+| `MAGENTO_CRYPT_KEY` | `""` | Magento's `crypt/key` from env.php (required for JWT) |
+| `JWT_TTL_MINUTES` | `60` | JWT token lifetime in minutes |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 
 ## Features
@@ -47,10 +49,10 @@ Default port: **8082** (to avoid conflict with Magento on 8080).
 - **`deleteCustomerAddress`** — Delete an address
 
 ### Infrastructure
-- **Bearer token authentication** via Magento's `oauth_token` table
+- **Magento-compatible JWT authentication** (HS256 signed with Magento's `crypt/key`)
 - **Store-scoped multi-tenancy** via `Store` HTTP header
 - **Redis response caching** (optional, skips authenticated requests)
-- **Magento-compatible password verification** (SHA256 + bcrypt)
+- **Magento-compatible password verification** (Argon2id, SHA256, bcrypt)
 
 ## Magento Compatibility
 

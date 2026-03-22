@@ -148,8 +148,16 @@ func (r *EAVAttributeRepository) GetValuesForEntity(ctx context.Context, entityT
 		byType[a.BackendType] = append(byType[a.BackendType], a)
 	}
 
+	// Valid backend types (whitelist to prevent SQL injection via table name)
+	validBackendTypes := map[string]bool{
+		"varchar": true, "int": true, "text": true, "decimal": true, "datetime": true,
+	}
+
 	var values []*EAVAttributeValue
 	for backendType, typeAttrs := range byType {
+		if !validBackendTypes[backendType] {
+			continue // skip unknown backend types
+		}
 		table := tablePrefix + "_" + backendType
 		attrIDs := make([]interface{}, len(typeAttrs))
 		placeholders := inPlaceholders(len(typeAttrs))

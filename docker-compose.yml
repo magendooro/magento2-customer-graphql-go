@@ -2,7 +2,7 @@ services:
   app:
     build: .
     ports:
-      - "8081:8080"
+      - "8082:8082"
     environment:
       DB_HOST: ${DB_HOST:-host.docker.internal}
       DB_PORT: ${DB_PORT:-3306}

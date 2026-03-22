@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 COPY go.mod go.sum ./
@@ -16,7 +16,7 @@ COPY --from=builder /server /server
 
 USER appuser
 
-ENV SERVER_PORT=8080 \
+ENV SERVER_PORT=8082 \
     DB_HOST=localhost \
     DB_PORT=3306 \
     DB_USER=root \
@@ -27,9 +27,9 @@ ENV SERVER_PORT=8080 \
     LOG_LEVEL=info \
     LOG_PRETTY=false
 
-EXPOSE 8080
+EXPOSE 8082
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:8080/health || exit 1
+    CMD wget -qO- http://localhost:8082/health || exit 1
 
 ENTRYPOINT ["/server"]

@@ -123,3 +123,46 @@ Test env vars: `TEST_DB_HOST`, `TEST_DB_PORT`, `TEST_DB_USER` (default: fch), `T
 ### Adding a field-level resolver
 1. Add to `gqlgen.yml` under `models.<TypeName>.fields.<field_name>.resolver: true`
 2. Regenerate → implement the resolver stub on the generated `<typeName>Resolver` struct
+
+## Development Workflow — Lessons Learned
+
+These rules come from real bugs caught during development. Follow them.
+
+### Before writing SQL
+- **`DESCRIBE` every table** before writing queries. Don't assume columns exist.
+- **Use `COALESCE(col, 0)`** for nullable numeric columns. Scanning NULL into `float64` panics.
+- **Whitelist all SQL identifiers** — sort directions, column names, table name suffixes. Never interpolate user input into SQL, even if "the GraphQL schema constrains it."
+- **When adding columns to SELECT**, update **ALL** methods that query the same table (`GetByID` AND `GetByEmail`). Column count must match Scan parameter count exactly.
+
+### Before implementing any query/mutation
+- **Check Magento's actual PHP code** for the resolver. Don't assume behavior.
+- **Check `core_config_data`** for config that affects behavior (e.g., `isEmailAvailable` anti-enumeration, password rules, timezone).
+- **Check if Magento has a lookup table** for display values (e.g., `sales_order_status` for status labels, `eav_attribute_option_value` for option labels).
+
+### After implementing
+1. `GOTOOLCHAIN=auto go build ./... && go vet ./...`
+2. `GOTOOLCHAIN=auto go test ./... -count=1 -timeout 120s` — all 72+ tests must pass
+3. **Live comparison**: start the Go server, send the same query to both `:8080` (Magento) and `:8082` (Go), diff the JSON. This is the ONLY way to verify true compatibility. Testing against DB ground truth is NOT sufficient.
+
+### Crypto/auth rules
+- **Always test round-trips** for password hashing (hash→verify) and JWT (create→validate).
+- **Never log tokens or secrets** — not even at DEBUG level.
+- **Test JWT cross-compatibility** — Go token must auth with Magento PHP and vice versa.
+
+### gqlgen rules
+- **`resolver.go`** must ONLY contain `Resolver` struct + `NewResolver()`. Nothing else.
+- **Helper functions** go in `helpers.go`, never in `schema.resolvers.go` (gets overwritten by gqlgen).
+- **Never manually write gqlgen execution code** — always regenerate. Delete any hand-written `*_exec.go` files.
+- **Using a gqlgen fork**: replace directive in go.mod. Remove when upstream merges. Currently patching: error response `locations` field ([#4090](https://github.com/99designs/gqlgen/pull/4090)).
+
+### Timezone handling
+- MySQL `TIMESTAMP` columns are stored in UTC internally but converted to session timezone on read.
+- DSN must include `time_zone=%27%2B00%3A00%27` to get UTC from MySQL, PLUS `loc=UTC` for Go's interpretation.
+- Magento converts order dates to the store timezone from `general/locale/timezone` in `core_config_data`.
+- Use `OrderService.formatOrderDate()` for order timestamps, `formatDateTime()` for customer timestamps.
+
+### Working with sandbox/cowork-generated code
+- **DESCRIBE every table** referenced in SQL — sandbox may assume columns that don't exist.
+- **Delete any `*_exec.go` files** and regenerate with gqlgen — sandbox can't run gqlgen and hand-writes these.
+- **Clean up `.git/*.lock` files** left by crashed processes.
+- **Check for nullable columns** — sandbox often uses `float64` where `COALESCE` is needed.

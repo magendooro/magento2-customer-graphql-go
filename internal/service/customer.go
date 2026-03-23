@@ -14,6 +14,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	custerr "github.com/magendooro/magento2-customer-graphql-go/internal/errors"
+
 	"github.com/magendooro/magento2-customer-graphql-go/graph/model"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
@@ -67,10 +69,10 @@ func (s *CustomerService) validatePassword(password string) error {
 	requiredClasses := s.cp.GetInt("customer/password/required_character_classes_number", 0, defaultRequiredClasses)
 
 	if len(password) < minLen {
-		return fmt.Errorf("the password needs at least %d characters. Create a new password and try again", minLen)
+		return custerr.ErrPasswordTooShort(minLen)
 	}
 	if len(password) > 256 {
-		return fmt.Errorf("please enter a valid password with at most 256 characters")
+		return custerr.ErrPasswordTooLong
 	}
 
 	// Count character classes: lowercase, uppercase, digits, special
@@ -102,7 +104,7 @@ func (s *CustomerService) validatePassword(password string) error {
 	}
 
 	if classCount < requiredClasses {
-		return fmt.Errorf("minimum of different classes of characters in password is %d. Classes of characters: Lower Case, Upper Case, Digits, Special Characters", requiredClasses)
+		return custerr.ErrPasswordClassesShort(requiredClasses)
 	}
 	return nil
 }
@@ -112,7 +114,7 @@ func (s *CustomerService) checkAccountLockout(data *repository.CustomerData) err
 	if data.LockExpires != nil && *data.LockExpires != "" {
 		lockExpires, err := time.Parse("2006-01-02 15:04:05", *data.LockExpires)
 		if err == nil && time.Now().UTC().Before(lockExpires) {
-			return fmt.Errorf("The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later.")
+			return custerr.ErrAuthFailed
 		}
 	}
 	return nil
@@ -142,7 +144,7 @@ func (s *CustomerService) resetLoginFailures(ctx context.Context, customerID int
 func (s *CustomerService) GetCustomer(ctx context.Context) (*model.Customer, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, fmt.Errorf("The current customer isn't authorized.")
+		return nil, custerr.ErrUnauthorized
 	}
 
 	data, err := s.customerRepo.GetByID(ctx, customerID)
@@ -189,7 +191,7 @@ func (s *CustomerService) GetCustomer(ctx context.Context) (*model.Customer, err
 
 // GenerateToken authenticates a customer and returns a JWT token.
 func (s *CustomerService) GenerateToken(ctx context.Context, email, password string) (*model.CustomerToken, error) {
-	authErr := fmt.Errorf("The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later.")
+	authErr := custerr.ErrAuthFailed
 
 	storeID := middleware.GetStoreID(ctx)
 	websiteID, _ := s.storeRepo.GetWebsiteIDForStore(ctx, storeID)
@@ -228,7 +230,7 @@ func (s *CustomerService) GenerateToken(ctx context.Context, email, password str
 func (s *CustomerService) RevokeToken(ctx context.Context) (*model.RevokeCustomerTokenOutput, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, fmt.Errorf("The current customer isn't authorized.")
+		return nil, custerr.ErrUnauthorized
 	}
 
 	err := s.tokenRepo.RevokeAllForCustomer(ctx, customerID)
@@ -278,7 +280,7 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, input model.Custom
 		return nil, err
 	}
 	if exists {
-		return nil, fmt.Errorf("a customer with the same email address already exists in an associated website")
+		return nil, custerr.ErrEmailAlreadyExists
 	}
 
 	passwordHash, err := repository.HashPassword(input.Password)
@@ -327,7 +329,7 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, input model.Custom
 func (s *CustomerService) UpdateCustomer(ctx context.Context, input model.CustomerUpdateInput) (*model.CustomerOutput, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, fmt.Errorf("The current customer isn't authorized.")
+		return nil, custerr.ErrUnauthorized
 	}
 
 	fields := make(map[string]interface{})
@@ -384,7 +386,7 @@ func (s *CustomerService) UpdateCustomer(ctx context.Context, input model.Custom
 func (s *CustomerService) ChangePassword(ctx context.Context, currentPassword, newPassword string) (*model.Customer, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, fmt.Errorf("The current customer isn't authorized.")
+		return nil, custerr.ErrUnauthorized
 	}
 
 	data, err := s.customerRepo.GetByID(ctx, customerID)
@@ -393,7 +395,7 @@ func (s *CustomerService) ChangePassword(ctx context.Context, currentPassword, n
 	}
 
 	if !repository.VerifyPassword(data.PasswordHash, currentPassword) {
-		return nil, fmt.Errorf("The password doesn't match this account. Verify the password and try again.")
+		return nil, custerr.ErrPasswordMismatch
 	}
 
 	if err := s.validatePassword(newPassword); err != nil {
@@ -425,7 +427,7 @@ func (s *CustomerService) ChangePassword(ctx context.Context, currentPassword, n
 func (s *CustomerService) UpdateEmail(ctx context.Context, email, password string) (*model.CustomerOutput, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, fmt.Errorf("The current customer isn't authorized.")
+		return nil, custerr.ErrUnauthorized
 	}
 
 	data, err := s.customerRepo.GetByID(ctx, customerID)
@@ -434,7 +436,7 @@ func (s *CustomerService) UpdateEmail(ctx context.Context, email, password strin
 	}
 
 	if !repository.VerifyPassword(data.PasswordHash, password) {
-		return nil, fmt.Errorf("The password doesn't match this account. Verify the password and try again.")
+		return nil, custerr.ErrPasswordMismatch
 	}
 
 	// Check email uniqueness within the same website
@@ -445,7 +447,7 @@ func (s *CustomerService) UpdateEmail(ctx context.Context, email, password strin
 		return nil, err
 	}
 	if exists {
-		return nil, fmt.Errorf("a customer with the same email address already exists in an associated website")
+		return nil, custerr.ErrEmailAlreadyExists
 	}
 
 	if err := s.customerRepo.Update(ctx, customerID, map[string]interface{}{
@@ -466,7 +468,7 @@ func (s *CustomerService) UpdateEmail(ctx context.Context, email, password strin
 func (s *CustomerService) CreateAddress(ctx context.Context, input model.CustomerAddressInput) (*model.CustomerAddress, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, fmt.Errorf("The current customer isn't authorized.")
+		return nil, custerr.ErrUnauthorized
 	}
 
 	data := s.mapAddressInput(input)
@@ -498,7 +500,7 @@ func (s *CustomerService) CreateAddress(ctx context.Context, input model.Custome
 func (s *CustomerService) UpdateAddress(ctx context.Context, addressID int, input model.CustomerAddressInput) (*model.CustomerAddress, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, fmt.Errorf("The current customer isn't authorized.")
+		return nil, custerr.ErrUnauthorized
 	}
 
 	// Verify ownership
@@ -507,7 +509,7 @@ func (s *CustomerService) UpdateAddress(ctx context.Context, addressID int, inpu
 		return nil, fmt.Errorf("address not found: %w", err)
 	}
 	if existing.ParentID != customerID {
-		return nil, fmt.Errorf("address doesn't belong to this customer")
+		return nil, custerr.ErrAddressNotOwned
 	}
 
 	fields := s.mapAddressFields(input)
@@ -536,7 +538,7 @@ func (s *CustomerService) UpdateAddress(ctx context.Context, addressID int, inpu
 func (s *CustomerService) DeleteAddress(ctx context.Context, addressID int) (bool, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return false, fmt.Errorf("The current customer isn't authorized.")
+		return false, custerr.ErrUnauthorized
 	}
 
 	existing, err := s.addressRepo.GetByID(ctx, addressID)
@@ -544,7 +546,7 @@ func (s *CustomerService) DeleteAddress(ctx context.Context, addressID int) (boo
 		return false, fmt.Errorf("address not found: %w", err)
 	}
 	if existing.ParentID != customerID {
-		return false, fmt.Errorf("address doesn't belong to this customer")
+		return false, custerr.ErrAddressNotOwned
 	}
 
 	// Clear default references if needed
@@ -566,7 +568,7 @@ func (s *CustomerService) DeleteAddress(ctx context.Context, addressID int) (boo
 func (s *CustomerService) DeleteCustomer(ctx context.Context) (bool, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return false, fmt.Errorf("The current customer isn't authorized.")
+		return false, custerr.ErrUnauthorized
 	}
 
 	s.tokenRepo.RevokeAllForCustomer(ctx, customerID)
@@ -613,18 +615,18 @@ func (s *CustomerService) ResetPassword(ctx context.Context, email, resetPasswor
 
 	data, err := s.customerRepo.GetByEmail(ctx, email, websiteID)
 	if err != nil {
-		return false, fmt.Errorf("no such entity with email = %s", email)
+		return false, custerr.ErrNoSuchEmail(email)
 	}
 
 	if data.RPToken == nil || *data.RPToken != resetPasswordToken {
-		return false, fmt.Errorf("the password token is mismatched. Reset and try again")
+		return false, custerr.ErrPasswordTokenBad
 	}
 
 	// Check token expiry (default: 2 hours)
 	if data.RPTokenCreatedAt != nil {
 		created, err := time.Parse("2006-01-02 15:04:05", *data.RPTokenCreatedAt)
 		if err == nil && time.Since(created) > 2*time.Hour {
-			return false, fmt.Errorf("your password reset link has expired")
+			return false, custerr.ErrPasswordResetExpiry
 		}
 	}
 
@@ -657,11 +659,11 @@ func (s *CustomerService) ConfirmEmail(ctx context.Context, input model.ConfirmE
 
 	data, err := s.customerRepo.GetByEmail(ctx, input.Email, websiteID)
 	if err != nil {
-		return nil, fmt.Errorf("no such entity with email = %s", input.Email)
+		return nil, custerr.ErrNoSuchEmail(input.Email)
 	}
 
 	if data.Confirmation == nil || *data.Confirmation != input.ConfirmationKey {
-		return nil, fmt.Errorf("the confirmation token is invalid. Verify the token and try again")
+		return nil, custerr.ErrConfirmationTokenInvalid
 	}
 
 	err = s.customerRepo.Update(ctx, data.EntityID, map[string]interface{}{

@@ -1,4 +1,6 @@
-# magento2-customer-graphql-go
+<p align="center">
+  <img src="docs/logo.png" alt="magento2-customer-graphql-go" width="600">
+</p>
 
 High-performance Go drop-in replacement for Magento 2's customer-related GraphQL queries and mutations. Connects to the same MySQL database as Magento, producing **identical responses** to Magento PHP at significantly faster speeds.
 

@@ -25,12 +25,9 @@ graph/                Schema, resolvers, generated code, helpers
   resolver.go         Dependency wiring
   helpers.go          Utility functions (decodeUID, derefStr, coalesce)
 internal/
-  app/                HTTP server, middleware chain, error presenter
-  cache/              Redis client (optional)
-  config/             Viper config (env vars > YAML > defaults)
-  database/           MySQL connection (socket + TCP, UTC timezone)
-  jwt/                Magento-compatible JWT creation/validation
-  middleware/         Auth (JWT+oauth), CORS, cache, logging, recovery, store
+  app/                HTTP server, middleware chain, error presenter (magentoErrorPresenter kept local)
+  config/             Viper config struct only (env vars > YAML > defaults)
+                      NOTE: JWT, cache, db, middleware all come from magento2-go-common
   repository/         Data access (one file per domain):
     customer.go       Customer CRUD, password hashing (Argon2id/SHA256/bcrypt)
     address.go        Address CRUD
@@ -45,6 +42,18 @@ internal/
     orders.go         Order service with parallel batch loading, timezone handling
 tests/                Integration + comparison tests (HTTP-based via httptest)
 ```
+
+### Shared packages (from magento2-go-common)
+
+`internal/{cache,database,jwt,middleware}` and `internal/config/provider.go` were removed — provided by `magento2-go-common`. Services import:
+
+```go
+commonjwt  "github.com/magendooro/magento2-go-common/jwt"
+"github.com/magendooro/magento2-go-common/middleware"   // AuthMiddleware, TokenResolver, GetCustomerID, etc.
+"github.com/magendooro/magento2-go-common/config"       // ConfigProvider
+```
+
+The `magentoErrorPresenter` function (GraphQL error category tagging) is **kept local** in `internal/app/app.go` — it is specific to the customer service's error vocabulary.
 
 ## Build & Test
 

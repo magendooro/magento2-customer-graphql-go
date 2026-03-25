@@ -5,10 +5,7 @@ package errors
 import "fmt"
 
 // Auth errors
-var (
-	ErrUnauthorized = fmt.Errorf("The current customer isn't authorized.")
-	ErrAuthFailed   = fmt.Errorf("The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later.")
-)
+var ErrAuthFailed = fmt.Errorf("The account sign-in was incorrect or your account is disabled temporarily. Please wait and try again later.")
 
 // Password errors
 var (

@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	custerr "github.com/magendooro/magento2-customer-graphql-go/internal/errors"
+	"github.com/magendooro/magento2-go-common/mgerrors"
 
 	"github.com/magendooro/magento2-customer-graphql-go/graph/model"
 	"github.com/magendooro/magento2-go-common/middleware"
@@ -63,7 +64,7 @@ func NewCustomerService(
 func (s *CustomerService) GetCustomer(ctx context.Context) (*model.Customer, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, custerr.ErrUnauthorized
+		return nil, mgerrors.ErrUnauthorized
 	}
 
 	data, err := s.customerRepo.GetByID(ctx, customerID)
@@ -149,7 +150,7 @@ func (s *CustomerService) GenerateToken(ctx context.Context, email, password str
 func (s *CustomerService) RevokeToken(ctx context.Context) (*model.RevokeCustomerTokenOutput, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, custerr.ErrUnauthorized
+		return nil, mgerrors.ErrUnauthorized
 	}
 
 	err := s.tokenRepo.RevokeAllForCustomer(ctx, customerID)
@@ -248,7 +249,7 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, input model.Custom
 func (s *CustomerService) UpdateCustomer(ctx context.Context, input model.CustomerUpdateInput) (*model.CustomerOutput, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, custerr.ErrUnauthorized
+		return nil, mgerrors.ErrUnauthorized
 	}
 
 	fields := make(map[string]interface{})
@@ -305,7 +306,7 @@ func (s *CustomerService) UpdateCustomer(ctx context.Context, input model.Custom
 func (s *CustomerService) ChangePassword(ctx context.Context, currentPassword, newPassword string) (*model.Customer, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, custerr.ErrUnauthorized
+		return nil, mgerrors.ErrUnauthorized
 	}
 
 	data, err := s.customerRepo.GetByID(ctx, customerID)
@@ -346,7 +347,7 @@ func (s *CustomerService) ChangePassword(ctx context.Context, currentPassword, n
 func (s *CustomerService) UpdateEmail(ctx context.Context, email, password string) (*model.CustomerOutput, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, custerr.ErrUnauthorized
+		return nil, mgerrors.ErrUnauthorized
 	}
 
 	data, err := s.customerRepo.GetByID(ctx, customerID)
@@ -387,7 +388,7 @@ func (s *CustomerService) UpdateEmail(ctx context.Context, email, password strin
 func (s *CustomerService) CreateAddress(ctx context.Context, input model.CustomerAddressInput) (*model.CustomerAddress, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, custerr.ErrUnauthorized
+		return nil, mgerrors.ErrUnauthorized
 	}
 
 	data := s.mapAddressInput(input)
@@ -419,7 +420,7 @@ func (s *CustomerService) CreateAddress(ctx context.Context, input model.Custome
 func (s *CustomerService) UpdateAddress(ctx context.Context, addressID int, input model.CustomerAddressInput) (*model.CustomerAddress, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return nil, custerr.ErrUnauthorized
+		return nil, mgerrors.ErrUnauthorized
 	}
 
 	// Verify ownership
@@ -457,7 +458,7 @@ func (s *CustomerService) UpdateAddress(ctx context.Context, addressID int, inpu
 func (s *CustomerService) DeleteAddress(ctx context.Context, addressID int) (bool, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return false, custerr.ErrUnauthorized
+		return false, mgerrors.ErrUnauthorized
 	}
 
 	existing, err := s.addressRepo.GetByID(ctx, addressID)
@@ -487,7 +488,7 @@ func (s *CustomerService) DeleteAddress(ctx context.Context, addressID int) (boo
 func (s *CustomerService) DeleteCustomer(ctx context.Context) (bool, error) {
 	customerID := middleware.GetCustomerID(ctx)
 	if customerID == 0 {
-		return false, custerr.ErrUnauthorized
+		return false, mgerrors.ErrUnauthorized
 	}
 
 	s.tokenRepo.RevokeAllForCustomer(ctx, customerID)

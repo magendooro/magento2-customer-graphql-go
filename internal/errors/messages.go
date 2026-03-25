@@ -31,4 +31,25 @@ var (
 )
 
 // Address errors
-var ErrAddressNotOwned = fmt.Errorf("address doesn't belong to this customer")
+var (
+	ErrAddressNotOwned              = fmt.Errorf("address doesn't belong to this customer")
+	ErrAddressDefaultBillingDelete  = func(id int) error {
+		return fmt.Errorf("Customer Address %d is set as default billing address and can not be deleted", id)
+	}
+	ErrAddressDefaultShippingDelete = func(id int) error {
+		return fmt.Errorf("Customer Address %d is set as default shipping address and can not be deleted", id)
+	}
+)
+
+// Account confirmation errors
+var ErrEmailConfirmationRequired = fmt.Errorf("This account isn't confirmed. Verify and try again.")
+
+// Account lock errors
+var ErrAccountLocked = fmt.Errorf("The account is locked.")
+
+// Email format errors (exact Magento messages differ per operation)
+var (
+	ErrEmailInvalidFormat   = fmt.Errorf("The email address has an invalid format.")
+	ErrEmailInvalid         = fmt.Errorf("Email is invalid")
+	ErrEmailAddressNotValid = fmt.Errorf("Email address is not valid")
+)

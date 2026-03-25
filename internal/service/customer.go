@@ -130,6 +130,11 @@ func (s *CustomerService) GenerateToken(ctx context.Context, email, password str
 		return nil, err
 	}
 
+	// Check email confirmation — if confirmation key is set, account is unconfirmed
+	if data.Confirmation != nil && *data.Confirmation != "" {
+		return nil, custerr.ErrEmailConfirmationRequired
+	}
+
 	if !repository.VerifyPassword(data.PasswordHash, password) {
 		s.recordLoginFailure(ctx, data.EntityID)
 		return nil, authErr
@@ -166,6 +171,10 @@ func (s *CustomerService) RevokeToken(ctx context.Context) (*model.RevokeCustome
 // Respects Magento's guest_checkout/login config — when disabled (default in 2.4.6+),
 // always returns true to prevent email enumeration.
 func (s *CustomerService) IsEmailAvailable(ctx context.Context, email string) (*model.IsEmailAvailableOutput, error) {
+	if !isValidEmail(email) {
+		return nil, custerr.ErrEmailInvalid
+	}
+
 	// Check if email availability check is enabled (Magento default: disabled)
 	storeID := middleware.GetStoreID(ctx)
 	if !s.cp.GetBool("customer/account/login/email_availability_check", storeID) {
@@ -229,10 +238,13 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, input model.Custom
 		return nil, err
 	}
 
-	// Handle newsletter subscription
+	// Handle newsletter subscription (only if newsletter module is active)
 	if input.IsSubscribed != nil && *input.IsSubscribed {
-		if err := s.newsletterRepo.Subscribe(ctx, id, storeID, input.Email); err != nil {
-			log.Warn().Err(err).Int("customer_id", id).Msg("newsletter subscribe failed")
+		newsletterActive := s.cp.GetInt("newsletter/general/active", storeID, 1)
+		if newsletterActive == 1 {
+			if err := s.newsletterRepo.Subscribe(ctx, id, storeID, input.Email); err != nil {
+				log.Warn().Err(err).Int("customer_id", id).Msg("newsletter subscribe failed")
+			}
 		}
 	}
 
@@ -469,13 +481,15 @@ func (s *CustomerService) DeleteAddress(ctx context.Context, addressID int) (boo
 		return false, custerr.ErrAddressNotOwned
 	}
 
-	// Clear default references if needed
+	// Block deletion of default billing or shipping addresses (Magento behavior)
 	customer, _ := s.customerRepo.GetByID(ctx, customerID)
-	if customer.DefaultBilling != nil && *customer.DefaultBilling == addressID {
-		s.customerRepo.Update(ctx, customerID, map[string]interface{}{"default_billing": nil})
-	}
-	if customer.DefaultShipping != nil && *customer.DefaultShipping == addressID {
-		s.customerRepo.Update(ctx, customerID, map[string]interface{}{"default_shipping": nil})
+	if customer != nil {
+		if customer.DefaultBilling != nil && *customer.DefaultBilling == addressID {
+			return false, custerr.ErrAddressDefaultBillingDelete(addressID)
+		}
+		if customer.DefaultShipping != nil && *customer.DefaultShipping == addressID {
+			return false, custerr.ErrAddressDefaultShippingDelete(addressID)
+		}
 	}
 
 	if err := s.addressRepo.Delete(ctx, addressID); err != nil {
@@ -502,6 +516,10 @@ func (s *CustomerService) DeleteCustomer(ctx context.Context) (bool, error) {
 // RequestPasswordResetEmail generates a reset token and stores it.
 // Returns true regardless of whether the email exists (prevents enumeration).
 func (s *CustomerService) RequestPasswordResetEmail(ctx context.Context, email string) (bool, error) {
+	if !isValidEmail(email) {
+		return false, custerr.ErrEmailInvalidFormat
+	}
+
 	storeID := middleware.GetStoreID(ctx)
 	websiteID, _ := s.storeRepo.GetWebsiteIDForStore(ctx, storeID)
 
@@ -509,6 +527,10 @@ func (s *CustomerService) RequestPasswordResetEmail(ctx context.Context, email s
 	if err != nil {
 		// Don't reveal whether the email exists
 		return true, nil
+	}
+
+	if isCustomerLocked(data) {
+		return false, custerr.ErrAccountLocked
 	}
 
 	// Generate a random reset token
@@ -530,6 +552,10 @@ func (s *CustomerService) RequestPasswordResetEmail(ctx context.Context, email s
 
 // ResetPassword validates the reset token and updates the password.
 func (s *CustomerService) ResetPassword(ctx context.Context, email, resetPasswordToken, newPassword string) (bool, error) {
+	if !isValidEmail(email) {
+		return false, custerr.ErrEmailInvalidFormat
+	}
+
 	storeID := middleware.GetStoreID(ctx)
 	websiteID, _ := s.storeRepo.GetWebsiteIDForStore(ctx, storeID)
 
@@ -538,14 +564,20 @@ func (s *CustomerService) ResetPassword(ctx context.Context, email, resetPasswor
 		return false, custerr.ErrNoSuchEmail(email)
 	}
 
+	if isCustomerLocked(data) {
+		return false, custerr.ErrAccountLocked
+	}
+
 	if data.RPToken == nil || *data.RPToken != resetPasswordToken {
 		return false, custerr.ErrPasswordTokenBad
 	}
 
-	// Check token expiry (default: 2 hours)
+	// Check token expiry using config (customer/password/reset_link_expiration_period, in days, default: 1)
 	if data.RPTokenCreatedAt != nil {
+		expiryDays := s.cp.GetInt("customer/password/reset_link_expiration_period", storeID, 1)
+		expiryDuration := time.Duration(expiryDays) * 24 * time.Hour
 		created, err := time.Parse("2006-01-02 15:04:05", *data.RPTokenCreatedAt)
-		if err == nil && time.Since(created) > 2*time.Hour {
+		if err == nil && time.Since(created) > expiryDuration {
 			return false, custerr.ErrPasswordResetExpiry
 		}
 	}
@@ -574,6 +606,10 @@ func (s *CustomerService) ResetPassword(ctx context.Context, email, resetPasswor
 
 // ConfirmEmail confirms a customer's email using a confirmation key.
 func (s *CustomerService) ConfirmEmail(ctx context.Context, input model.ConfirmEmailInput) (*model.CustomerOutput, error) {
+	if !isValidEmail(input.Email) {
+		return nil, custerr.ErrEmailInvalid
+	}
+
 	storeID := middleware.GetStoreID(ctx)
 	websiteID, _ := s.storeRepo.GetWebsiteIDForStore(ctx, storeID)
 
@@ -597,8 +633,21 @@ func (s *CustomerService) ConfirmEmail(ctx context.Context, input model.ConfirmE
 	return &model.CustomerOutput{Customer: s.mapCustomer(updated)}, nil
 }
 
-// ResendConfirmationEmail is a no-op (email sending not implemented).
+// ResendConfirmationEmail validates the email and logs the request (email sending not implemented).
 func (s *CustomerService) ResendConfirmationEmail(ctx context.Context, email string) (bool, error) {
+	if !isValidEmail(email) {
+		return false, custerr.ErrEmailAddressNotValid
+	}
+
+	storeID := middleware.GetStoreID(ctx)
+	websiteID, _ := s.storeRepo.GetWebsiteIDForStore(ctx, storeID)
+
+	_, err := s.customerRepo.GetByEmail(ctx, email, websiteID)
+	if err != nil {
+		// Don't reveal whether the email exists
+		return true, nil
+	}
+
 	log.Info().Str("email", email).Msg("resend confirmation email requested (email sending not implemented)")
 	return true, nil
 }

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,25 +15,25 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
 	"github.com/99designs/gqlgen/graphql/playground"
-	"github.com/vektah/gqlparser/v2/gqlerror"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	"github.com/magendooro/magento2-customer-graphql-go/graph"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/cache"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/database"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/jwt"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
+	appconfig "github.com/magendooro/magento2-customer-graphql-go/internal/config"
+	commoncache "github.com/magendooro/magento2-go-common/cache"
+	commondb "github.com/magendooro/magento2-go-common/database"
+	commonjwt "github.com/magendooro/magento2-go-common/jwt"
+	"github.com/magendooro/magento2-go-common/middleware"
 )
 
 type App struct {
-	cfg   *config.Config
+	cfg   *appconfig.Config
 	db    *sql.DB
-	cache *cache.Client
+	cache *commoncache.Client
 }
 
-func New(cfg *config.Config) (*App, error) {
+func New(cfg *appconfig.Config) (*App, error) {
 	if cfg.Logging.Pretty {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	}
@@ -43,17 +43,29 @@ func New(cfg *config.Config) (*App, error) {
 	}
 	zerolog.SetGlobalLevel(level)
 
-	db, err := database.NewConnection(cfg.Database)
+	db, err := commondb.NewConnection(commondb.Config{
+		Host:            cfg.Database.Host,
+		Port:            cfg.Database.Port,
+		User:            cfg.Database.User,
+		Password:        cfg.Database.Password,
+		Name:            cfg.Database.Name,
+		Socket:          cfg.Database.Socket,
+		MaxOpenConns:    cfg.Database.MaxOpenConns,
+		MaxIdleConns:    cfg.Database.MaxIdleConns,
+		ConnMaxLifetime: cfg.Database.ConnMaxLifetime,
+		ConnMaxIdleTime: cfg.Database.ConnMaxIdleTime,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("database connection failed: %w", err)
 	}
 	log.Info().Str("database", cfg.Database.Name).Msg("connected to database")
 
-	redisCache := cache.New(cache.Config{
+	redisCache := commoncache.New(commoncache.Config{
 		Host:     cfg.Redis.Host,
 		Port:     cfg.Redis.Port,
 		Password: cfg.Redis.Password,
 		DB:       cfg.Redis.DB,
+		Prefix:   "cust_gql:",
 	})
 
 	return &App{cfg: cfg, db: db, cache: redisCache}, nil
@@ -62,10 +74,9 @@ func New(cfg *config.Config) (*App, error) {
 func (a *App) Run() error {
 	storeResolver := middleware.NewStoreResolver(a.db)
 
-	// Initialize JWT manager (requires MAGENTO_CRYPT_KEY)
-	var jwtManager *jwt.Manager
+	var jwtManager *commonjwt.Manager
 	if a.cfg.Magento.CryptKey != "" {
-		jwtManager = jwt.NewManager(a.cfg.Magento.CryptKey, a.cfg.Magento.JWTTTLMinutes)
+		jwtManager = commonjwt.NewManager(a.cfg.Magento.CryptKey, a.cfg.Magento.JWTTTLMinutes)
 		log.Info().Int("ttl_minutes", a.cfg.Magento.JWTTTLMinutes).Msg("JWT authentication enabled")
 	} else {
 		log.Warn().Msg("MAGENTO_CRYPT_KEY not set — JWT token generation disabled, only legacy oauth_token supported")
@@ -83,7 +94,6 @@ func (a *App) Run() error {
 		Resolvers: resolver,
 	}))
 
-	// Custom error presenter to add Magento-compatible extensions.category
 	srv.SetErrorPresenter(magentoErrorPresenter)
 
 	if a.cfg.GraphQL.ComplexityLimit > 0 {
@@ -102,9 +112,11 @@ func (a *App) Run() error {
 		w.Write([]byte("ok"))
 	})
 
-	// Middleware chain (outermost first)
 	var h http.Handler = mux
-	h = middleware.CacheMiddleware(a.cache)(h)
+	h = middleware.CacheMiddleware(a.cache, middleware.CacheOptions{
+		SkipAuthenticated: true,
+		SkipMutations:     true,
+	})(h)
 	h = middleware.AuthMiddleware(tokenResolver)(h)
 	h = middleware.StoreMiddleware(storeResolver)(h)
 	h = middleware.LoggingMiddleware(h)
@@ -150,7 +162,6 @@ func (a *App) Run() error {
 // magentoErrorPresenter adds Magento-compatible extensions.category to GraphQL errors.
 func magentoErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
 	gqlErr := graphql.DefaultErrorPresenter(ctx, err)
-
 	msg := gqlErr.Message
 	switch {
 	case strings.Contains(msg, "isn't authorized"):
@@ -159,6 +170,5 @@ func magentoErrorPresenter(ctx context.Context, err error) *gqlerror.Error {
 		strings.Contains(msg, "token has been revoked"):
 		gqlErr.Extensions = map[string]interface{}{"category": "graphql-authentication"}
 	}
-
 	return gqlErr
 }

@@ -13,8 +13,8 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 
 	"github.com/magendooro/magento2-customer-graphql-go/graph"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/jwt"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
+	"github.com/magendooro/magento2-go-common/jwt"
+	"github.com/magendooro/magento2-go-common/middleware"
 )
 
 var testHandler http.Handler

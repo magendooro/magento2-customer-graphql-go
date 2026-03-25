@@ -12,7 +12,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/magendooro/magento2-customer-graphql-go/graph/model"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
+	"github.com/magendooro/magento2-go-common/config"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/repository"
 )
 

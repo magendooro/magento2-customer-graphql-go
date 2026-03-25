@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/jwt"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
+	"github.com/magendooro/magento2-go-common/config"
+	"github.com/magendooro/magento2-go-common/jwt"
+	"github.com/magendooro/magento2-go-common/middleware"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/repository"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/service"
 )

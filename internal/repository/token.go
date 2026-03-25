@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/magendooro/magento2-customer-graphql-go/internal/jwt"
+	"github.com/magendooro/magento2-go-common/jwt"
 )
 
 type TokenRepository struct {

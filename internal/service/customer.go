@@ -17,8 +17,8 @@ import (
 	custerr "github.com/magendooro/magento2-customer-graphql-go/internal/errors"
 
 	"github.com/magendooro/magento2-customer-graphql-go/graph/model"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/middleware"
-	"github.com/magendooro/magento2-customer-graphql-go/internal/config"
+	"github.com/magendooro/magento2-go-common/middleware"
+	"github.com/magendooro/magento2-go-common/config"
 	"github.com/magendooro/magento2-customer-graphql-go/internal/repository"
 )
 
